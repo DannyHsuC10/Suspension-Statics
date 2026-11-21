@@ -815,7 +815,8 @@ for (const id of ["enable-downforce", "downforce", "mass", "gravity", "ax", "ay"
 }
 $("apply-acceleration").addEventListener("click", () => perform(() => {
   const loads = exampleLoads(state.model, GRIP, readSettings());
-  setLoads(loads, "Acceleration applied. Solve to update the axial member results.");
+  setLoads(loads, "Acceleration applied.");
+  solveCurrent(false);
 }));
 $("solve").addEventListener("click", () => solveCurrent());
 $("load-type").addEventListener("change", updateLoadTargets);

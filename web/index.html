@@ -154,7 +154,13 @@
 
         <div id="panel-sections" class="analysis-body" role="tabpanel" aria-labelledby="tab-sections" tabindex="0" hidden>
           <div class="section-heading"><h2>Member sections</h2></div>
-          <label>Inspect member<select id="section-member"></select></label>
+          <div class="section-toolbar">
+            <div class="button-row">
+              <button type="button" id="apply-sections" class="primary">Apply to selected</button>
+              <button type="button" id="apply-all-sections">Apply to all</button>
+            </div>
+            <label>Inspect member<select id="section-member"></select></label>
+          </div>
           <div class="section-editor">
             <canvas id="section-preview" aria-label="Round member section preview"></canvas>
             <div class="input-grid">
@@ -164,10 +170,6 @@
             </div>
           </div>
           <dl id="section-properties" class="properties-grid" aria-live="polite"></dl>
-          <div class="button-row section-actions">
-            <button type="button" id="apply-sections" class="primary">Apply to selected</button>
-            <button type="button" id="apply-all-sections">Apply to all</button>
-          </div>
           <div class="table-scroll section-table" tabindex="0" aria-label="Member section assignments">
             <table>
               <thead><tr><th scope="col">Apply</th><th scope="col">Member</th><th scope="col" class="num">OD (mm)</th><th scope="col" class="num">ID (mm)</th><th scope="col" class="num">E (GPa)</th></tr></thead>

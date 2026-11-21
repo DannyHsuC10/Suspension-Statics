@@ -145,6 +145,8 @@ tbody tr[data-interactive="true"]:hover { background: #edf7f6; cursor: pointer; 
 .state-tension { color: #116354; }
 .state-compression { color: #983527; }
 
+.section-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+.section-toolbar > label { flex: 1 1 7rem; }
 .section-editor { display: grid; grid-template-columns: minmax(8rem, .85fr) minmax(9rem, 1fr); gap: .7rem; align-items: stretch; }
 #section-preview { width: 100%; height: 170px; display: block; background: var(--night); border-radius: 7px; }
 .properties-grid, .history-statistics { display: grid; gap: .42rem; }
