@@ -1,0 +1,30 @@
+{
+  "static": {
+    "files": {
+      "nodes_path": "nodes.csv",
+      "rods_path": "rods.csv"
+    },
+    "forces": [
+      {
+        "node": "lf_arm",
+        "value": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "node": "rack",
+        "value": [
+          0.0,
+          0.0,
+          -950.0
+        ]
+      }
+    ],
+    "output": {
+      "report": true,
+      "csv": true
+    }
+  }
+}

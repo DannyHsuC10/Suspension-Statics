@@ -40,6 +40,7 @@
           <li><a href="#solver">Matrix and solver checks</a></li>
           <li><a href="#loads">Load cases and contact forces</a></li>
           <li><a href="#sections">Sections and elastic response</a></li>
+          <li><a href="#interference">Rod interference</a></li>
           <li><a href="#history">Force history</a></li>
           <li><a href="#lp03">LP03 shared damper</a></li>
         </ul>
@@ -184,6 +185,19 @@
           <aside class="method-note">
             <p>The displayed geometry stays at its original hardpoints. Evaluating bending, torsion, buckling, large deflection, material yielding, or fatigue requires additional structural analysis.</p>
           </aside>
+        </section>
+
+        <section id="interference">
+          <h2>Rod interference</h2>
+          <p>During statics and history solves, the program checks pairs of actual axial members at the imported hardpoint pose. Each rod is approximated by a capsule with radius \(r_i=D_{o,i}/2\) about its finite three-dimensional centerline. If \(\mathbf p_i(s)=\mathbf a_i+s(\mathbf b_i-\mathbf a_i)\) parameterizes the centerline under test, the minimum centerline distance and estimated overlap are</p>
+          <div class="method-equation">
+            \[
+              d_{\min}=\min_{0\le s,t\le1}\lVert\mathbf p_i(s)-\mathbf p_j(t)\rVert,\qquad
+              \delta=r_i+r_j-d_{\min}.
+            \]
+          </div>
+          <p>A positive overlap produces a warning with both member names and the estimated overlap in millimeters. Tangent capsules are treated as touching. To allow for an intended shared joint, each centerline is shortened at that end by \(2(r_i+r_j)\) before checking the rest of the pair. Coincident members are still checked.</p>
+          <p>The warning leaves the equilibrium results intact. The estimate covers rod bodies at the reference pose. Checking rigid parts, actual joint envelopes, or clearance throughout suspension travel requires their geometry and motion.</p>
         </section>
 
         <section id="history">
