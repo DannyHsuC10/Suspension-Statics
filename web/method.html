@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The equations, load assumptions, and numerical checks behind Suspension Statics Lab.">
+  <title>Calculation Method | Suspension Statics Lab</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script>
+    window.MathJax = { output: { displayOverflow: "scroll" } };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js"></script>
+</head>
+<body class="method-page">
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="./index.html">
+        <img class="brand-icon" src="./icon.svg" alt="" width="40" height="40">
+        <span>Suspension Statics Lab</span>
+      </a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a class="nav-link" href="./index.html">Workbench</a>
+        <a class="nav-link" href="./method.html" aria-current="page">Calculation method</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="method-content" id="main">
+    <div class="method-intro">
+      <h1>Calculation Method</h1>
+      <p>Suspension Statics Lab resolves external forces and couples into axial member forces and chassis support reactions. It uses the imported hardpoint geometry for equilibrium and the selected sections for linear-elastic stress, strain, and length change.</p>
+    </div>
+
+    <div class="method-layout">
+      <nav class="method-toc" aria-label="On this page">
+        <h2>On this page</h2>
+        <ul>
+          <li><a href="#model">Structural model</a></li>
+          <li><a href="#equilibrium">Equilibrium equations</a></li>
+          <li><a href="#solver">Matrix and solver checks</a></li>
+          <li><a href="#loads">Load cases and contact forces</a></li>
+          <li><a href="#sections">Sections and elastic response</a></li>
+          <li><a href="#history">Force history</a></li>
+          <li><a href="#lp03">LP03 shared damper</a></li>
+        </ul>
+      </nav>
+
+      <article class="method-article" aria-label="Calculation method">
+        <section id="model">
+          <h2>Structural model</h2>
+          <p>The vehicle axes point forward in +X, left in +Y, and up in +Z. Hardpoint positions enter equilibrium in meters, forces in newtons, and moments in newton-meters. Member lengths and circular section dimensions are reported in millimeters.</p>
+          <p>The model assigns hardpoints to the fixed chassis, to moving rigid bodies such as uprights, or to ideal pin nodes. Each two-force member acts along the line between two hardpoints. A standard wishbone is represented by two axial members with a common outer joint. When a pushrod attaches to a wishbone, the model treats that wishbone as a rigid body, hinged at the two chassis pickups and connected to the upright at a ball joint. A rocker with an active damper path rotates about the axis from <code>ROCKER_A</code> to <code>ROCKER_B</code>. For the standard model, an inboard pushrod with no defined damper path is held at its chassis hardpoint.</p>
+        </section>
+
+        <section id="equilibrium">
+          <h2>Equilibrium equations</h2>
+          <p>Each free rigid body has three force equations and three moment equations. About a reference position \(\mathbf c_j\) on body \(j\), the balances are</p>
+          <div class="method-equation">
+            \[
+              \sum_k \mathbf F_k = \mathbf 0,\qquad
+              \sum_k (\mathbf r_k-\mathbf c_j)\times\mathbf F_k
+              + \sum_\ell \mathbf C_\ell = \mathbf 0.
+            \]
+          </div>
+          <p>Here \(\mathbf r_k\) is the force application point and \(\mathbf C_\ell\) is a pure couple. A free pin node has three force equations. A couple may be entered at a rod end attached to a rigid body, using the right-hand sign convention. The entry applies an external moment to the attached body. The member still transmits axial force only.</p>
+
+          <h3>Member and joint reactions</h3>
+          <p>For a member from A to B, the length, direction, and endpoint forces on the adjoining bodies are</p>
+          <div class="method-equation">
+            \[
+              L_0=\lVert\mathbf r_B-\mathbf r_A\rVert,\qquad
+              \hat{\mathbf u}=\frac{\mathbf r_B-\mathbf r_A}{L_0},
+              \qquad
+              \mathbf F_A=P\hat{\mathbf u},\quad
+              \mathbf F_B=-P\hat{\mathbf u}.
+            \]
+          </div>
+          <p>Positive \(P\) pulls the two endpoints toward each other and denotes tension. Negative \(P\) denotes compression. A ball joint provides three force reactions at a shared point and zero reaction couple. An ideal hinge adds two independent reaction couple components in the plane perpendicular to its unit axis \(\hat{\mathbf h}\). Its reaction couple satisfies \(\hat{\mathbf h}\cdot\mathbf C_\mathrm{hinge}=0\), leaving rotation about the axis free. Joint reactions enter the incident bodies with opposite signs.</p>
+
+          <h3>Chassis support resultant</h3>
+          <p>The support resultant balances all external loads, including forces and couples entered at chassis points. The moment reference \(\mathbf o\) is the center of gravity (CG) when available and the coordinate origin otherwise.</p>
+          <div class="method-equation">
+            \[
+              \mathbf R=-\sum_k\mathbf F^{\mathrm{ext}}_k,\qquad
+              \mathbf M_{\mathbf o}=-\left[
+                \sum_k(\mathbf r_k-\mathbf o)\times\mathbf F^{\mathrm{ext}}_k+
+                \sum_\ell\mathbf C^{\mathrm{ext}}_\ell
+              \right].
+            \]
+          </div>
+          <p>The displayed force and moment describe the combined chassis support. A balanced vehicle load case can give a zero resultant while individual members carry substantial forces.</p>
+        </section>
+
+        <section id="solver">
+          <h2>Matrix and solver checks</h2>
+          <p>Each column of the equilibrium matrix \(K\) represents one unit member force or one unit joint reaction. The rod column contributes \(+\hat{\mathbf u}\) to the A body’s force rows and \(-\hat{\mathbf u}\) to the B body’s force rows, with their corresponding moment contributions. The chassis is fixed and contributes no equilibrium rows.</p>
+          <p>The rigid-body moment reference \(\mathbf c_j\) is the mean of the incident hardpoints used by the solver. It divides that body’s moment rows by a characteristic length \(\ell_j\), the largest distance from \(\mathbf c_j\) to those points with a lower bound of 1 mm. For a point force \(\mathbf f\) and optional couple \(\mathbf C\), the scaled rigid-body contribution is</p>
+          <div class="method-equation">
+            \[
+              \begin{bmatrix}
+                \mathbf f \\
+                [(\mathbf r-\mathbf c_j)\times\mathbf f+\mathbf C]/\ell_j
+              \end{bmatrix}.
+            \]
+          </div>
+          <p>Hinge couple columns use perpendicular unit basis vectors multiplied by the moving body’s characteristic length, so the scaled columns are comparable with the other reaction columns. The external load vector \(\mathbf b\) uses the same row scaling.</p>
+          <div class="method-equation">
+            \[
+              K\mathbf x=-\mathbf b,\qquad
+              \mathbf e=K\mathbf x+\mathbf b.
+            \]
+          </div>
+          <ul>
+            <li>The least-squares solve uses a relative singular-value cutoff of \(10^{-10}\). Rank below the number of columns means the member and joint reactions are non-unique.</li>
+            <li>The maximum absolute scaled residual must satisfy \(\lVert\mathbf e\rVert_\infty \le 10^{-7}\max(1,\lVert\mathbf b\rVert_\infty)\). A larger residual means the load is incompatible with the modeled constraints.</li>
+            <li>Full column rank with rank below the equation count permits a unique reaction vector for compatible loads. Other loads can excite the remaining free directions.</li>
+          </ul>
+        </section>
+
+        <section id="loads">
+          <h2>Load cases and contact forces</h2>
+          <p>Direct input applies an XYZ force at a hardpoint or a pure couple to a rigid body. Multiple load entries add linearly. The static preset uses 321 kg and gravity. The acceleration preset combines weight, optional downforce \(D\) at the CG, and the equivalent inertia force for acceleration \(\mathbf a=(a_x,a_y,a_z)\).</p>
+          <div class="method-equation">
+            \[
+              \mathbf F_{\mathrm{inertial}}=-m\mathbf a,\qquad
+              W=m(g+a_z)+D,\qquad
+              \mathbf F_{\mathrm{CG}}=(-ma_x,\,-ma_y,\,-W).
+            \]
+          </div>
+          <p>Use \(g=9.81\,\mathrm{m/s^2}\) when gravity is enabled and zero otherwise. The static preset uses \(\mathbf a=\mathbf 0\) and \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
+
+          <h3>Estimated four-wheel shares</h3>
+          <p>With wheel positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the preset starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the balance matrix \(B\) and corrected shares \(\mathbf s\) satisfy</p>
+          <div class="method-equation">
+            \[
+              B=\begin{bmatrix}
+                1&amp;1&amp;1&amp;1\\
+                y_{FL}&amp;y_{FR}&amp;y_{RL}&amp;y_{RR}\\
+                -x_{FL}&amp;-x_{FR}&amp;-x_{RL}&amp;-x_{RR}
+              \end{bmatrix},\qquad
+              B\mathbf s=\begin{bmatrix}1\\0\\0\end{bmatrix}.
+            \]
+          </div>
+          <p>Wheel \(i\) gets horizontal forces \(F_{x,i}=s_i ma_x\) and \(F_{y,i}=s_i ma_y\). Those forces produce the moment \(\mathbf M_h=\sum_i \mathbf p_i\times(F_{x,i},F_{y,i},0)\). The preset estimates vertical forces with a minimum-norm correction to the initial vector \(W\mathbf s\), targeting</p>
+          <div class="method-equation">
+            \[
+              B\mathbf F_z=
+              \begin{bmatrix}
+                W\\-M_{h,x}\\-M_{h,y}
+              \end{bmatrix}.
+            \]
+          </div>
+          <p>The algorithm checks for negative vertical contact force and reports possible wheel lift. It uses a fixed-pose force and moment balance with an assumed load distribution. Enter contact forces directly when a measured or independently calculated tire load is available. The member equilibrium still checks those contact forces against the suspension’s joint and member constraints.</p>
+        </section>
+
+        <section id="sections">
+          <h2>Sections and elastic response</h2>
+          <p>A circular section uses outer diameter \(D_o\), inner diameter \(D_i\), and outer radius \(c=D_o/2\), all in millimeters. Require \(D_o&gt;D_i\ge0\). Set \(D_i=0\) for a solid round section. The example section starts at 19 mm outer diameter, 15 mm inner diameter, and a Young’s modulus of 205 GPa. \(I\) and \(S\) are taken about any centroidal diameter axis. The polar properties use the section center.</p>
+          <div class="method-table">
+            <table>
+              <thead>
+                <tr><th scope="col">Property</th><th scope="col">Equation</th><th scope="col">Unit</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Area</th><td>\(A=\pi(D_o^2-D_i^2)/4\)</td><td>mm²</td></tr>
+                <tr><th scope="row">Second moment of area</th><td>\(I=\pi(D_o^4-D_i^4)/64\)</td><td>mm⁴</td></tr>
+                <tr><th scope="row">Section modulus</th><td>\(S=I/c\)</td><td>mm³</td></tr>
+                <tr><th scope="row">Radius of gyration</th><td>\(r=\sqrt{I/A}\)</td><td>mm</td></tr>
+                <tr><th scope="row">Polar second moment</th><td>\(J=2I\)</td><td>mm⁴</td></tr>
+                <tr><th scope="row">Polar section modulus</th><td>\(Z_p=J/c\)</td><td>mm³</td></tr>
+                <tr><th scope="row">Polar radius of gyration</th><td>\(r_p=\sqrt{J/A}\)</td><td>mm</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>With \(P\) in N, \(A\) in mm², Young’s modulus \(E\) converted from GPa to MPa, and \(L_0\) in mm, the reported axial values are</p>
+          <div class="method-equation">
+            \[
+              \sigma=\frac{P}{A},\qquad
+              \varepsilon=\frac{\sigma}{E},\qquad
+              \Delta L=\varepsilon L_0=\frac{P L_0}{AE}.
+            \]
+          </div>
+          <p>Stress is in MPa, strain is displayed in microstrain \(10^6\varepsilon\), and length change is in mm. Compression gives negative stress, strain, and length change. Section properties affect this post-processing. The equilibrium solve uses only geometry, topology, and external loads.</p>
+          <aside class="method-note">
+            <p>The displayed geometry stays at its original hardpoints. Evaluating bending, torsion, buckling, large deflection, material yielding, or fatigue requires additional structural analysis.</p>
+          </aside>
+        </section>
+
+        <section id="history">
+          <h2>Force history</h2>
+          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Enabled gravity and CG downforce are constant across the ramp. Changing the duration changes the time scale and acceleration slope, while each sample uses equilibrium on the same hardpoints.</p>
+          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. Otherwise longitudinal and lateral acceleration channels estimate contact forces using the selected mass and gravity setting. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
+          <p>The signed peak is the sample with the largest absolute force and retains its sign. The two means are time-weighted and use piecewise-linear interpolation, including exact integration of the two triangles when the force crosses zero inside an interval.</p>
+          <div class="method-equation">
+            \[
+              \bar P=\frac{1}{t_n-t_0}\int_{t_0}^{t_n}P(t)\,\mathrm dt,\qquad
+              \overline{|P|}=\frac{1}{t_n-t_0}\int_{t_0}^{t_n}|P(t)|\,\mathrm dt.
+            \]
+          </div>
+        </section>
+
+        <section id="lp03">
+          <h2>LP03 shared damper</h2>
+          <p>The Kinematics CSV <code>jacobian_project</code> field can define <code>deformable_members</code> with a name, two endpoint positions in meters, and two mounts. In <code>LP03_rockerset.csv</code>, <code>DAMPER_1</code> extends from the right front rocker (A) to the left front rocker (B). Its forces act with opposite signs on the two rockers, each with its own moment arm about its pivot axis.</p>
+          <div class="method-equation">
+            \[
+              \tau_R + P\left[(\mathbf r_A-\mathbf q_R)\times\hat{\mathbf u}\right]\cdot\hat{\mathbf h}_R=0,
+            \]
+            \[
+              \tau_L - P\left[(\mathbf r_B-\mathbf q_L)\times\hat{\mathbf u}\right]\cdot\hat{\mathbf h}_L=0.
+            \]
+          </div>
+          <p>Here \(\mathbf q_R\) and \(\mathbf q_L\) are points on the right and left pivot axes, and \(\tau_R\) and \(\tau_L\) are the other torques about those axes. Both equations must agree on the same \(P\). With the supplied LP03 geometry, the standard vertical static-wheel preset fails the equilibrium check. A compatible load or a physical load path for the remaining motion is needed to obtain a static solution. In a controlled check, equal and opposite 500 N forces pulling the endpoints apart along the rod axis give \(P=+500\ \mathrm N\).</p>
+          <p>The imported damper is evaluated as an axial member at the specified pose. Its velocity-dependent damping force, gas preload, and spring characteristics are outside this calculation.</p>
+        </section>
+      </article>
+    </div>
+  </main>
+</body>
+</html>

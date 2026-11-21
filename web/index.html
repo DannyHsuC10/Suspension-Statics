@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Solve static suspension member forces, axial stress, and quasi-static load histories using your own hardpoints.">
+  <title>Suspension Statics Lab</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" type="module"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workbench</a>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="./index.html">
+        <img class="brand-icon" src="./icon.svg" width="40" height="40" alt="">
+        <span>Suspension Statics Lab</span>
+      </a>
+      <nav class="site-nav" aria-label="Site navigation">
+        <a class="nav-link" href="./index.html" aria-current="page">Workbench</a>
+        <a class="nav-link" href="./method.html">Calculation method</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="app-shell">
+    <section class="project-bar panel" aria-label="Project and files">
+      <div class="project-title">
+        <h1 id="source-name">Suspension workbench</h1>
+        <p id="project-metrics">Loading the four-wheel example…</p>
+      </div>
+      <div class="project-actions">
+        <details class="file-menu">
+          <summary>Examples</summary>
+          <div class="menu-options">
+            <button type="button" data-example="default_hardpoints.csv">Four-wheel geometry</button>
+            <button type="button" data-example="hardpoints.csv">Geometry with dampers</button>
+          </div>
+        </details>
+        <button type="button" id="edit-points" disabled>Edit hardpoints</button>
+        <details class="file-menu">
+          <summary>Import</summary>
+          <div class="menu-options">
+            <button type="button" data-file="geometry">Hardpoints CSV</button>
+            <button type="button" data-file="project">Project JSON</button>
+            <button type="button" data-file="topology">Custom topology JSON</button>
+            <button type="button" data-file="loads">External loads CSV</button>
+            <button type="button" data-file="lap">Lap data CSV</button>
+          </div>
+        </details>
+        <details class="file-menu">
+          <summary>Export</summary>
+          <div class="menu-options">
+            <button type="button" data-export="geometry">Hardpoints CSV</button>
+            <button type="button" data-export="project">Project JSON</button>
+            <button type="button" data-export="loads">External loads CSV</button>
+            <button type="button" data-export="results">Member results CSV</button>
+            <button type="button" data-export="history">Load history CSV</button>
+          </div>
+        </details>
+        <input id="file-input" type="file" hidden>
+      </div>
+    </section>
+
+    <div class="workbench">
+      <section class="panel geometry-panel" aria-labelledby="geometry-title">
+        <div class="panel-heading geometry-heading">
+          <h2 id="geometry-title">Suspension geometry</h2>
+          <div class="segmented" role="group" aria-label="View orientation">
+            <button type="button" data-view="iso" aria-pressed="true">ISO</button>
+            <button type="button" data-view="front" aria-pressed="false">Front</button>
+            <button type="button" data-view="side" aria-pressed="false">Side</button>
+            <button type="button" data-view="top" aria-pressed="false">Top</button>
+          </div>
+        </div>
+        <canvas id="geometry-view" tabindex="0" aria-label="Interactive three-dimensional suspension geometry"></canvas>
+        <div class="geometry-controls">
+          <div class="checkbox-row">
+            <label class="check"><input id="view-labels" type="checkbox"> Hardpoint labels</label>
+            <label class="check"><input id="view-loads" type="checkbox"> Force components</label>
+          </div>
+          <div class="stress-key" aria-label="Absolute axial stress scale in megapascals">
+            <span>|Stress|</span><span>0</span><span class="stress-ramp" aria-hidden="true"></span><span id="stress-limit">— MPa</span>
+          </div>
+        </div>
+        <div class="selection-bar">
+          <p id="geometry-selection">Select a member or hardpoint to inspect it.</p>
+          <p class="hint geometry-hint">Drag to orbit · Right-drag to pan · Scroll to zoom</p>
+        </div>
+      </section>
+
+      <section class="panel analysis-panel" aria-label="Analysis controls">
+        <div class="analysis-tabs" role="tablist" aria-label="Analysis panels">
+          <button type="button" role="tab" aria-selected="true" aria-controls="panel-loads" id="tab-loads">Load cases</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="panel-sections" id="tab-sections" tabindex="-1">Sections</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="panel-results" id="tab-results" tabindex="-1">Results</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="panel-history" id="tab-history" tabindex="-1">History</button>
+        </div>
+
+        <div id="panel-loads" class="analysis-body" role="tabpanel" aria-labelledby="tab-loads">
+          <div class="section-heading">
+            <h2>Load case</h2>
+            <button type="button" id="solve" class="primary" disabled>Solve member forces</button>
+          </div>
+          <div class="inline-form">
+            <label for="preset">Preset
+              <select id="preset">
+                <option value="static">Static load</option>
+                <option value="acceleration">CG acceleration</option>
+                <option value="bump">Single-wheel bump</option>
+              </select>
+            </label>
+            <button type="button" id="apply-preset" disabled>Apply preset</button>
+          </div>
+          <p class="hint" id="preset-hint">321 kg vehicle weight and four vertical tire reactions.</p>
+          <div id="acceleration-settings" class="subpanel" hidden>
+            <div class="input-grid four-inputs">
+              <label>Mass (kg)<input id="mass" type="number" min="0" step="any" value="321"></label>
+              <label>ax (m/s²)<input id="ax" type="number" step="any" value="6.3765"></label>
+              <label>ay (m/s²)<input id="ay" type="number" step="any" value="0"></label>
+              <label>az (m/s²)<input id="az" type="number" step="any" value="0"></label>
+            </div>
+            <div class="acceleration-options">
+              <label class="check"><input type="checkbox" id="gravity" checked> Include gravity</label>
+              <label class="check"><input type="checkbox" id="enable-downforce"> Extra downforce</label>
+              <label class="compact-number"><span>Downforce (N)</span><input id="downforce" type="number" min="0" step="any" value="0" disabled></label>
+            </div>
+            <p class="hint" id="acceleration-magnitude"></p>
+          </div>
+          <div class="section-heading separated">
+            <h3>External loads</h3>
+            <button type="button" id="clear-loads">Clear loads</button>
+          </div>
+          <div class="table-scroll load-table" tabindex="0" aria-label="Applied loads">
+            <table>
+              <thead><tr><th scope="col">Target</th><th scope="col">Type</th><th scope="col" class="num">X</th><th scope="col" class="num">Y</th><th scope="col" class="num">Z</th><th scope="col" class="num">Magnitude</th></tr></thead>
+              <tbody id="load-rows"></tbody>
+            </table>
+          </div>
+          <p class="hint total-load" id="load-total"></p>
+          <div class="subpanel load-editor">
+            <div class="input-grid two-inputs">
+              <label>Load type
+                <select id="load-type">
+                  <option value="">Point force</option>
+                  <option value="A">Member end A couple</option>
+                  <option value="B">Member end B couple</option>
+                </select>
+              </label>
+              <label>Target<select id="load-target"></select></label>
+            </div>
+            <div class="input-grid three-inputs">
+              <label><span id="load-x-label">Fx (N)</span><input id="load-x" type="number" step="any" value="0"></label>
+              <label><span id="load-y-label">Fy (N)</span><input id="load-y" type="number" step="any" value="0"></label>
+              <label><span id="load-z-label">Fz (N)</span><input id="load-z" type="number" step="any" value="0"></label>
+            </div>
+            <p id="load-hint" class="hint"></p>
+            <div class="button-row">
+              <button type="button" id="add-load">Add load</button>
+              <button type="button" id="update-load" disabled>Update selected</button>
+              <button type="button" id="delete-load" disabled>Delete selected</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="panel-sections" class="analysis-body" role="tabpanel" aria-labelledby="tab-sections" hidden>
+          <div class="section-heading"><h2>Member sections</h2></div>
+          <label>Inspect member<select id="section-member"></select></label>
+          <div class="section-editor">
+            <canvas id="section-preview" aria-label="Round member section preview"></canvas>
+            <div class="input-grid">
+              <label>Outer diameter (mm)<input id="outer-mm" type="number" min="0" step="any" value="19"></label>
+              <label>Inner diameter (mm)<input id="inner-mm" type="number" min="0" step="any" value="15"></label>
+              <label>Young’s modulus (GPa)<input id="young-gpa" type="number" min="0" step="any" value="205"></label>
+            </div>
+          </div>
+          <dl id="section-properties" class="properties-grid" aria-live="polite"></dl>
+          <div class="button-row section-actions">
+            <button type="button" id="apply-sections" class="primary">Apply to selected</button>
+            <button type="button" id="apply-all-sections">Apply to all</button>
+          </div>
+          <div class="table-scroll section-table" tabindex="0" aria-label="Member section assignments">
+            <table>
+              <thead><tr><th scope="col">Apply</th><th scope="col">Member</th><th scope="col" class="num">OD (mm)</th><th scope="col" class="num">ID (mm)</th><th scope="col" class="num">E (GPa)</th></tr></thead>
+              <tbody id="section-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="panel-results" class="analysis-body" role="tabpanel" aria-labelledby="tab-results" hidden>
+          <div class="section-heading">
+            <h2>Member results</h2>
+            <button type="button" data-export="results" disabled>Export results CSV</button>
+          </div>
+          <div id="result-summary" class="result-summary">
+            <div><span>Support force (N)</span><strong id="support-force">—</strong></div>
+            <div><span id="support-moment-label">Support moment (N·m)</span><strong id="support-moment">—</strong></div>
+          </div>
+          <p class="hint">Positive axial force indicates tension. Negative axial force indicates compression.</p>
+          <div class="table-scroll result-table" tabindex="0" aria-label="Member force and stress results">
+            <table>
+              <thead><tr><th scope="col">Member</th><th scope="col">State</th><th scope="col" class="num">Force (N)</th><th scope="col" class="num">Stress (MPa)</th><th scope="col" class="num">Strain (µε)</th><th scope="col" class="num">ΔL (mm)</th><th scope="col" class="num">L₀ (mm)</th><th scope="col" class="num">Area (mm²)</th></tr></thead>
+              <tbody id="result-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="panel-history" class="analysis-body" role="tabpanel" aria-labelledby="tab-history" hidden>
+          <div class="section-heading"><h2>Quasi-static load history</h2></div>
+          <div class="history-actions button-row">
+            <label>Rise time (s)<input type="number" id="rise-time" value="1" min="0" step="any"></label>
+            <button type="button" id="generate-history" class="primary">Generate ramp</button>
+            <button type="button" data-file="lap">Import lap CSV</button>
+          </div>
+          <p class="hint" id="history-source">Uses the mass and acceleration settings from the CG acceleration preset.</p>
+          <div id="history-results" hidden>
+            <div class="history-controls">
+              <label>Plot member<select id="history-member"></select></label>
+              <label class="check"><input type="checkbox" id="track-governing"> Track governing member</label>
+            </div>
+            <canvas id="history-plot" tabindex="0" aria-label="Acceleration and member force histories"></canvas>
+            <div class="playback">
+              <button type="button" id="play-history">Play</button>
+              <input type="range" id="history-scrubber" aria-label="History frame" value="0" min="0" max="0">
+              <output id="history-time" for="history-scrubber">0 s</output>
+            </div>
+            <p class="hint" id="governing-member"></p>
+            <dl class="history-statistics" id="history-statistics"></dl>
+            <button type="button" data-export="history">Export history CSV</button>
+          </div>
+          <details class="format-help">
+            <summary>Lap CSV columns</summary>
+            <p>Use an increasing <code>time_s</code> and either all four wheels’ XYZ forces, such as <code>fx_FL_N</code>, or <code>ax_m_s2</code> and <code>ay_m_s2</code> with optional <code>az_m_s2</code>. Acceleration can also be supplied in <em>g</em> using <code>ax_g</code>, <code>ay_g</code>, and <code>az_g</code>.</p>
+          </details>
+        </div>
+      </section>
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite">Loading geometry…</p>
+  </main>
+
+  <dialog id="geometry-editor" aria-labelledby="editor-title">
+    <div class="dialog-header">
+      <h2 id="editor-title">Edit hardpoints</h2>
+      <button type="button" id="close-editor" aria-label="Close editor">×</button>
+    </div>
+    <div class="dialog-body">
+      <p class="hint">Coordinates in millimeters. +X forward, +Y left, +Z up.</p>
+      <div class="table-scroll editor-table">
+        <table>
+          <thead><tr><th scope="col">Hardpoint</th><th scope="col">X (mm)</th><th scope="col">Y (mm)</th><th scope="col">Z (mm)</th></tr></thead>
+          <tbody id="point-rows"></tbody>
+        </table>
+      </div>
+      <p id="editor-error" class="inline-error" role="alert"></p>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" id="export-edited">Export edited CSV</button>
+      <button type="button" id="apply-points" class="primary">Apply and close</button>
+    </div>
+  </dialog>
+</body>
+</html>
