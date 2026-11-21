@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 
 from SuspensionStaticsLab.interference import find_interferences
-from SuspensionStaticsLab.load_cases import ACCEL, BUMP, CASES, GRAVITY, STATIC, example_loads
+from SuspensionStaticsLab.load_cases import ACCEL, BUMP, CASES, GRAVITY, GRIP, STATIC, example_loads, grip_acceleration_limit
 from SuspensionStaticsLab.model import (
-    EXAMPLE, build_model, load_model_csv, read_hardpoint_table, read_hardpoints, write_hardpoint_csv,
+    CORNERS, EXAMPLE, build_model, load_model_csv, read_hardpoint_table, read_hardpoints, write_hardpoint_csv,
 )
 from SuspensionStaticsLab.solver import Load, Section, member_results, solve
 
@@ -63,10 +63,12 @@ class StaticsTests(unittest.TestCase):
     def test_example_cases_balance_all_corners(self):
         model = build_model(read_hardpoints(EXAMPLE))
         baseloads = example_loads(model, STATIC)
+        self.assertNotIn(STATIC, CASES)
+        self.assertEqual(example_loads(model, ACCEL), baseloads)
         baseline = np.array([load.xyz[2] for load in baseloads[1:5]])
         for case in CASES:
             with self.subTest(case=case):
-                loads = example_loads(model, case)
+                loads = example_loads(model, case, acceleration_mps2=(.65 * GRAVITY, 0., 0.))
                 result = solve(model, loads)
                 self.assertEqual(len(result.forces), 16)
                 self.assertEqual(result.rank, result.equations)
@@ -77,13 +79,19 @@ class StaticsTests(unittest.TestCase):
                     np.testing.assert_allclose(result.support_force, 0., atol=1e-9)
                     np.testing.assert_allclose(result.support_moment, 0., atol=1e-9)
                     tire_z = np.array([load.xyz[2] for load in loads[1:5]])
-                    if case == ACCEL:
+                    if case in (ACCEL, GRIP):
                         self.assertLess(tire_z[:2].sum(), baseline[:2].sum())
 
     def test_cg_acceleration_combines_transfer_and_apparent_weight(self):
-        model = build_model(read_hardpoints(EXAMPLE))
+        points = read_hardpoints(EXAMPLE)
+        for corner, height in zip(CORNERS, (.015, -.030, .022, .004)):
+            x, y, _ = points[f"{corner}_WC"]
+            points[f"{corner}_CONTACT"] = (x, y, height)
+        model = build_model(points)
         mass = 280.
         ax, ay, az = 3., 4., 1.5
+        weight = mass * (GRAVITY + az)
+        lateral_ratio = mass * ay / weight
 
         def contact_loads(components):
             loads = example_loads(model, ACCEL, mass_kg=mass, acceleration_mps2=components)
@@ -92,17 +100,22 @@ class StaticsTests(unittest.TestCase):
         baseline = contact_loads((0., 0., 0.))
         longitudinal = contact_loads((ax, 0., 0.))
         lateral = contact_loads((0., ay, 0.))
-        vertical = contact_loads((0., 0., az))
         combined = contact_loads((ax, ay, az))
         self.assertLess(longitudinal[:2, 2].sum(), baseline[:2, 2].sum())
         self.assertGreater(lateral[1::2, 2].sum(), baseline[1::2, 2].sum())
-        np.testing.assert_allclose(combined, longitudinal + lateral + vertical - 2. * baseline)
-        np.testing.assert_allclose(combined.sum(axis=0), (mass * ax, mass * ay, mass * (GRAVITY + az)))
+        np.testing.assert_allclose(lateral.sum(axis=0), (0., mass * ay, mass * GRAVITY))
+        np.testing.assert_array_equal(combined[:, 0], longitudinal[:, 0])
+        np.testing.assert_allclose(combined[:, 1], lateral_ratio * combined[:, 2], rtol=1e-12)
+        np.testing.assert_allclose(combined.sum(axis=0), (mass * ax, mass * ay, weight))
+        relative = np.array([points[wheel.contact] for wheel in model.wheels]) - model.points[model.cg]
+        moment = np.cross(relative, combined).sum(axis=0)
+        np.testing.assert_allclose(moment[:2], 0., atol=1e-9)
+        self.assertGreater(abs(moment[2]), 1.)
         loads = example_loads(model, ACCEL, mass_kg=mass, acceleration_mps2=(ax, ay, az))
-        np.testing.assert_allclose(loads[0].xyz, (-mass * ax, -mass * ay, -mass * (GRAVITY + az)))
+        np.testing.assert_allclose(loads[0].xyz, (-mass * ax, -mass * ay, -weight))
         solution = solve(model, loads)
         np.testing.assert_allclose(solution.support_force, 0., atol=1e-9)
-        np.testing.assert_allclose(solution.support_moment, 0., atol=1e-9)
+        np.testing.assert_allclose(solution.support_moment, (0., 0., -moment[2]), atol=1e-9)
         with self.assertRaisesRegex(ValueError, "離地"):
             contact_loads((0., 0., -2. * GRAVITY))
         with self.assertRaisesRegex(ValueError, "質量"):
@@ -138,23 +151,91 @@ class StaticsTests(unittest.TestCase):
         self.assertAlmostEqual(vertical[0].xyz[2], -400.)
         self.assertAlmostEqual(sum(load.xyz[2] for load in vertical[1:]), 400.)
 
-    def test_cg_downforce_balances_with_or_without_gravity(self):
+    def test_cg_downforce_preserves_lateral_demand_with_or_without_gravity(self):
         model = build_model(read_hardpoints(EXAMPLE))
         mass, downforce = 280., 800.
         ax, ay, az = 1.2, -1., 1.5
+        contact_z = model.points[model.wheels[0].contact][2]
+        cg_height = model.points[model.cg][2] - contact_z
         for gravity in (False, True):
             with self.subTest(gravity=gravity):
                 loads = example_loads(model, ACCEL, mass_kg=mass, acceleration_mps2=(ax, ay, az),
                                       include_gravity=gravity, downforce_n=downforce)
                 expected_z = mass * (az + (GRAVITY if gravity else 0.)) + downforce
+                lateral_ratio = mass * ay / expected_z
                 self.assertEqual(loads[0].target, model.cg)
                 self.assertEqual([load.target for load in loads[1:]], [wheel.contact for wheel in model.wheels])
                 np.testing.assert_allclose(loads[0].xyz, (-mass * ax, -mass * ay, -expected_z))
-                np.testing.assert_allclose(np.sum([load.xyz for load in loads[1:]], axis=0),
-                                           (mass * ax, mass * ay, expected_z))
+                contacts = np.array([load.xyz for load in loads[1:]])
+                np.testing.assert_allclose(contacts[:, 1], lateral_ratio * contacts[:, 2])
+                np.testing.assert_allclose(contacts.sum(axis=0), (mass * ax, mass * ay, expected_z))
                 result = solve(model, loads)
                 np.testing.assert_allclose(result.support_force, 0., atol=1e-9)
-                np.testing.assert_allclose(result.support_moment, 0., atol=1e-9)
+                np.testing.assert_allclose(result.support_moment, (0., 0., cg_height * mass * ax * lateral_ratio), atol=1e-9)
+
+    def test_cg_downforce_can_prevent_lateral_traction_failure_and_wheel_lift(self):
+        model = build_model(read_hardpoints(EXAMPLE))
+        mass = 321.
+        for acceleration_g, coefficient, error in ((1.2, 1., "側向抓地力不足"), (2.1, 3., "離地")):
+            with self.subTest(acceleration_g=acceleration_g, coefficient=coefficient):
+                ay = acceleration_g * GRAVITY
+                settings = {"mass_kg": mass, "acceleration_mps2": (0., ay, 0.), "tire_mu": coefficient}
+                with self.assertRaisesRegex(ValueError, error):
+                    example_loads(model, ACCEL, **settings)
+                loads = example_loads(model, ACCEL, downforce_n=1000., **settings)
+                tires = np.array([load.xyz for load in loads[1:]])
+                weight = mass * GRAVITY + 1000.
+                self.assertTrue(np.all(tires[:, 2] > 0.))
+                self.assertTrue(np.all(np.abs(tires[:, 1]) <= coefficient * tires[:, 2]))
+                np.testing.assert_allclose(tires.sum(axis=0), (0., mass * ay, weight))
+                np.testing.assert_allclose(tires[:, 1], mass * ay / weight * tires[:, 2])
+                np.testing.assert_allclose(solve(model, loads).support_moment, 0., atol=1e-9)
+
+    def test_cg_tire_mu_requires_finite_nonnegative_coefficient(self):
+        model = build_model(read_hardpoints(EXAMPLE))
+        for value in (-1., float("nan"), float("inf"), True, ""):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "輪胎摩擦係數"):
+                example_loads(model, ACCEL, tire_mu=value)
+        with self.assertRaisesRegex(ValueError, "側向抓地力不足"):
+            example_loads(model, ACCEL, acceleration_mps2=(0., 1., 0.), tire_mu=0.)
+        with self.assertRaisesRegex(ValueError, "側向抓地力不足"):
+            example_loads(model, ACCEL, acceleration_mps2=(0., 1., 0.), include_gravity=False, tire_mu=4.)
+        boundary = example_loads(model, ACCEL, acceleration_mps2=(0., -.3 * GRAVITY, 0.), tire_mu=.3)
+        tires = np.array([load.xyz for load in boundary[1:]])
+        np.testing.assert_allclose(tires[:, 1], -.3 * tires[:, 2])
+
+    def test_grip_case_limits_combined_force_and_balances_both_lever_arms(self):
+        model = build_model(read_hardpoints(EXAMPLE))
+        mass = 280.
+        acceleration = np.array((.6 * GRAVITY, -.6 * GRAVITY, 0.))
+        settings = {"mass_kg": mass, "acceleration_mps2": acceleration, "tire_mu": .8}
+        self.assertTrue(example_loads(model, ACCEL, **settings))
+        with self.assertRaisesRegex(ValueError, "超出摩擦圓"):
+            example_loads(model, GRIP, **settings)
+        with self.assertRaisesRegex(ValueError, "超出摩擦圓"):
+            example_loads(model, GRIP, acceleration_mps2=(1., 0., 0.), include_gravity=False)
+
+        downforce = 500.
+        loads = example_loads(model, GRIP, downforce_n=downforce, **settings)
+        tires = np.array([load.xyz for load in loads[1:]])
+        weight = mass * GRAVITY + downforce
+        np.testing.assert_allclose(loads[0].xyz, (*(-mass * acceleration[:2]), -weight))
+        np.testing.assert_allclose(tires.sum(axis=0), (*(mass * acceleration[:2]), weight))
+        np.testing.assert_allclose(tires[:, :2], tires[:, 2:] * mass * acceleration[:2] / weight)
+        self.assertTrue(np.all(np.linalg.norm(tires[:, :2], axis=1) <= .8 * tires[:, 2]))
+        result = solve(model, loads)
+        np.testing.assert_allclose(result.support_force, 0., atol=1e-9)
+        np.testing.assert_allclose(result.support_moment, 0., atol=1e-9)
+
+    def test_grip_acceleration_limit_tracks_normal_load(self):
+        self.assertAlmostEqual(grip_acceleration_limit(100., 2., tire_mu=.8), .8 * (GRAVITY + 2.))
+        self.assertAlmostEqual(grip_acceleration_limit(100., 2., downforce_n=300., tire_mu=.8),
+                               .8 * (GRAVITY + 5.))
+        self.assertAlmostEqual(grip_acceleration_limit(100., 2., include_gravity=False,
+                                                       downforce_n=300., tire_mu=.8), 4.)
+        self.assertEqual(grip_acceleration_limit(100., 0., tire_mu=0.), 0.)
+        with self.assertRaisesRegex(ValueError, "離地"):
+            grip_acceleration_limit(100., -2., include_gravity=False)
 
     def test_cg_downforce_zero_validation_and_other_cases(self):
         model = build_model(read_hardpoints(EXAMPLE))

@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from SuspensionStaticsLab.history import acceleration_history, lap_history, solve_history
-from SuspensionStaticsLab.load_cases import ACCEL, STATIC, example_loads
+from SuspensionStaticsLab.load_cases import ACCEL, GRAVITY, GRIP, STATIC, example_loads
 from SuspensionStaticsLab.model import CORNERS, EXAMPLE, build_model, read_hardpoints
 from SuspensionStaticsLab.solver import Load, Section, solve
 
@@ -31,11 +31,15 @@ class HistoryTests(unittest.TestCase):
         np.testing.assert_allclose(history.acceleration_mps2[[0, 50, -1]], np.outer((0., .5, 1.), target))
         np.testing.assert_allclose(history.loads[0][0].xyz, example_loads(self.model, STATIC)[0].xyz)
         startup = solve(self.model, example_loads(self.model, STATIC))
+        midpoint_acceleration = history.acceleration_mps2[50]
+        midpoint = solve(self.model, example_loads(self.model, ACCEL, acceleration_mps2=midpoint_acceleration))
         final = solve(self.model, example_loads(self.model, ACCEL, acceleration_mps2=target))
+        contacts = np.asarray([load.xyz for load in history.loads[50][1:]])
+        fraction = midpoint_acceleration[1] / (GRAVITY + midpoint_acceleration[2])
+        np.testing.assert_allclose(contacts[:, 1], fraction * contacts[:, 2])
         for name, values in history.force_n.items():
-            np.testing.assert_allclose(values[[0, 50, -1]],
-                                       [startup.forces[name], (startup.forces[name] + final.forces[name]) / 2.,
-                                        final.forces[name]], atol=1e-8)
+            np.testing.assert_allclose(values[[0, 50, -1]], [startup.forces[name], midpoint.forces[name],
+                                                           final.forces[name]], atol=1e-8)
         sections = dict.fromkeys(history.force_n, Section())
         self.assertAlmostEqual(history.peak_stress(sections),
                                max(np.max(np.abs(values)) for values in history.force_n.values()) / Section().area_mm2())
@@ -44,22 +48,40 @@ class HistoryTests(unittest.TestCase):
         mass = 321.
         downforce = 800.
         history = acceleration_history(self.model, 2.5, (1.5, -1., 2.), mass_kg=mass,
-                                       include_gravity=False, downforce_n=downforce)
+                                       include_gravity=False, downforce_n=downforce, tire_mu=.5)
         expected = downforce + mass * history.acceleration_mps2[:, 2]
         contacts = {wheel.contact for wheel in self.model.wheels}
         cg_force_z = [sum(load.xyz[2] for load in frame if load.target == self.model.cg)
                       for frame in history.loads]
         contact_force_z = [sum(load.xyz[2] for load in frame if load.target in contacts)
                            for frame in history.loads]
+        contact_force_y = [sum(load.xyz[1] for load in frame if load.target in contacts)
+                           for frame in history.loads]
         np.testing.assert_allclose(cg_force_z, -expected)
         np.testing.assert_allclose(contact_force_z, expected)
+        np.testing.assert_allclose(contact_force_y, mass * history.acceleration_mps2[:, 1])
+        with self.assertRaisesRegex(ValueError, "側向抓地力不足"):
+            acceleration_history(self.model, 2.5, (1.5, -1., 2.), mass_kg=mass, include_gravity=False,
+                                 downforce_n=downforce, tire_mu=.05)
+
+    def test_grip_ramp_and_acceleration_lap_use_combined_limit(self):
+        target = (.6 * GRAVITY, .6 * GRAVITY, 0.)
+        settings = {"mass_kg": 280., "include_gravity": True, "tire_mu": .8, "case": GRIP}
+        with self.assertRaisesRegex(ValueError, "t = .*超出摩擦圓"):
+            acceleration_history(self.model, 1., target, **settings)
+        ramp = acceleration_history(self.model, 1., target, downforce_n=500., **settings)
+        self.write_lap(("time_s", "long_g", "lat_g"), [(0., 0., 0.), (1., .6, .6)])
+        lap = lap_history(self.model, self.path, downforce_n=500., **settings)
+        for name in ramp.force_n:
+            np.testing.assert_allclose(ramp.force_n[name][[0, -1]], lap.force_n[name], atol=1e-8)
 
     def test_actual_corner_forces_override_acceleration_columns(self):
         forces = [(120., -450., 820.), (230., -170., 700.), (85., -430., 720.), (21., -140., 520.)]
         flat = [value for vector in forces for value in vector]
         fields = ["time_s", "ax_g", "ay_g", *(f"f{axis}_{corner}_N" for corner in CORNERS for axis in "xyz")]
         self.write_lap(fields, [(1.2, 100., 100., *flat), (2.7, 200., 200., *(2. * value for value in flat))])
-        history = lap_history(self.model, self.path, mass_kg="", include_gravity=False)
+        history = lap_history(self.model, self.path, mass_kg="", include_gravity=False,
+                              downforce_n="", tire_mu="", case="unsupported")
         self.assertEqual(history.time_s.tolist(), [1.2, 2.7])
         np.testing.assert_allclose(history.acceleration_mps2[:, :2], [(981., 981.), (1962., 1962.)])
         self.assertTrue(np.isnan(history.acceleration_mps2[:, 2]).all())
@@ -71,9 +93,12 @@ class HistoryTests(unittest.TestCase):
 
     def test_lap_acceleration_fallback_and_duplicate_time_validation(self):
         fields = ("time_s", "long_g", "lat_g")
-        self.write_lap(fields, [(0., 0., 0.), (.2, .25, -.1)])
-        history = lap_history(self.model, self.path, mass_kg=280., include_gravity=True)
-        expected = example_loads(self.model, ACCEL, mass_kg=280., acceleration_mps2=(.25 * 9.81, -.1 * 9.81, 0.))
+        self.write_lap(fields, [(0., 0., 0.), (.2, .25, -.4)])
+        with self.assertRaisesRegex(ValueError, "t = 0.2 s.*側向抓地力不足"):
+            lap_history(self.model, self.path, mass_kg=280., include_gravity=True, tire_mu=.35)
+        history = lap_history(self.model, self.path, mass_kg=280., include_gravity=True, downforce_n=600., tire_mu=.35)
+        expected = example_loads(self.model, ACCEL, mass_kg=280., acceleration_mps2=(.25 * GRAVITY, -.4 * GRAVITY, 0.),
+                                 downforce_n=600., tire_mu=.35)
         for recorded, load in zip(history.loads[-1], expected):
             self.assertEqual(recorded.target, load.target)
             np.testing.assert_allclose(recorded.xyz, load.xyz)

@@ -20,10 +20,11 @@ ALIASES = {
     "TIE_IN": "RACK", "TIE_OUT": "TOE", "TIE_ROD_IN": "RACK", "TIE_ROD_OUT": "TOE",
     "PUSH_OUT_LCA": "PUSH_OUT", "PUSHROD_IN": "PUSH_IN", "PUSHROD_OUT": "PUSH_OUT",
 }
+PUSHROD_SUFFIXES = {"LCA": "PUSH_OUT", "UCA": "PUSH_OUT_UCA", "UPRIGHT": "PUSH_OUT_UPRIGHT"}
 ARM_POINTS = {"UCA_F", "UCA_R", "LCA_F", "LCA_R", "UBJ", "LBJ"}
 CORNER_POINTS = ARM_POINTS | {
     "RACK", "TOE", "WC", "CONTACT", "CONSTRUCTION_CONTACT", "FORWARD",
-    "PUSH_IN", "PUSH_OUT", "PUSH_OUT_UPRIGHT", "PUSH_OUT_UCA",
+    "PUSH_IN", *PUSHROD_SUFFIXES.values(),
     "ROCKER_A", "ROCKER_B", "DAMPER_IN", "DAMPER_BODY",
 }
 
@@ -76,6 +77,12 @@ def number(value, label):
     return result
 
 
+def _coordinates(values, label):
+    if not isinstance(values, (list, tuple)) or len(values) != 3:
+        raise ValueError(f"{label} 需要三個 XYZ 分量。")
+    return tuple(number(value, label) for value in values)
+
+
 def read_hardpoints(path):
     """Read the named points without building a suspension model."""
     return read_hardpoint_table(path)[0]
@@ -113,20 +120,17 @@ def read_hardpoint_table(path):
                 payload = settings
     if not points:
         raise ValueError("CSV 沒有硬點資料。")
-    member_mounts = _read_deformable_members(payload, points)
-    return points, member_mounts
-
-
-def _read_deformable_members(payload, points):
-    if not payload:
-        return {}
     try:
-        settings = json.loads(payload)
+        settings = json.loads(payload) if payload else {}
     except json.JSONDecodeError as exc:
         raise ValueError("硬點 CSV 的 Jacobian 專案設定無法解析。") from exc
+    return points, _read_deformable_members(settings, points)
+
+
+def _read_deformable_members(settings, points):
     members = settings.get("deformable_members", []) if isinstance(settings, dict) else None
     if not isinstance(members, list):
-        raise ValueError("硬點 CSV 的 deformable_members 需要桿件清單。")
+        raise ValueError("deformable_members 需要桿件清單。")
 
     point_names = {name.casefold() for name in points}
     rod_names = set()
@@ -134,23 +138,21 @@ def _read_deformable_members(payload, points):
     for member in members:
         name = member.get("name") if isinstance(member, dict) else None
         if not isinstance(name, str) or not name.strip():
-            raise ValueError("硬點 CSV 的變形元件需要桿件名稱。")
+            raise ValueError("變形元件需要桿件名稱。")
         name = name.strip()
         if name.casefold() in rod_names:
-            raise ValueError(f"硬點 CSV 有重複桿件 {name}。")
+            raise ValueError(f"有重複桿件 {name}。")
         rod_names.add(name.casefold())
         mounts = []
         for label in "AB":
             point = f"{name}_{label}"
             end = member.get(label.lower())
             xyz = end.get("xyz") if isinstance(end, dict) else None
-            if not isinstance(xyz, list) or len(xyz) != 3:
-                raise ValueError(f"{point} 需要三個 XYZ 分量。")
             if point.casefold() in point_names:
-                raise ValueError(f"硬點 CSV 有重複硬點 {point}。")
+                raise ValueError(f"有重複硬點 {point}。")
             point_names.add(point.casefold())
-            # Embedded endpoint coordinates are in meters for either CSV header unit.
-            points[point] = tuple(number(value, point) for value in xyz)
+            # Kinematics metadata stores endpoint coordinates in meters.
+            points[point] = _coordinates(xyz, point)
             mounts.append(end.get("mount"))
         member_mounts[name] = tuple(mounts)
     return member_mounts
@@ -159,6 +161,54 @@ def _read_deformable_members(payload, points):
 def load_model_csv(path):
     points, member_mounts = read_hardpoint_table(path)
     return build_model(points, member_mounts=member_mounts)
+
+
+def build_kinematics_model(data):
+    """Translate standard Jacobian Kinematics Lab project geometry to statics."""
+    if not isinstance(data, dict):
+        raise ValueError("運動學專案需要 JSON 物件。")
+    version = data.get("version", 1)
+    if isinstance(version, bool) or version != 1:
+        raise ValueError("運動學專案 JSON 需要 version 1。")
+    if data.get("mechanism") is not None:
+        raise ValueError("請使用標準懸吊幾何的運動學專案。自訂運動學機構的約束不同。")
+    source_points = data.get("points")
+    if (not isinstance(source_points, dict) or not source_points
+            or any(not isinstance(name, str) or not name.strip() for name in source_points)):
+        raise ValueError("運動學專案需要以公尺表示的具名硬點。")
+    points = {name: _coordinates(values, name) for name, values in source_points.items()}
+    overrides = data.get("pushrod_mounts", {})
+    if not isinstance(overrides, dict):
+        raise ValueError("運動學專案的 pushrod_mounts 需要 JSON 物件。")
+    for corner, mount in overrides.items():
+        if corner not in CORNERS or not isinstance(mount, str) or mount not in PUSHROD_SUFFIXES:
+            raise ValueError(f"{corner} 的推桿安裝位置無效。輪位須為 FL、FR、RL、RR，安裝位置須為 UCA、LCA、UPRIGHT。")
+        candidates = []
+        for name in points:
+            prefix, _, key = name.upper().partition("_")
+            suffix = ALIASES.get(key, key)
+            if prefix == corner and suffix in PUSHROD_SUFFIXES.values():
+                candidates.append((name, suffix))
+        if len(candidates) != 1:
+            raise ValueError(f"{corner} 的推桿安裝設定需要一個推桿外端硬點。")
+        name, current_suffix = candidates[0]
+        expected_suffix = PUSHROD_SUFFIXES[mount]
+        if current_suffix != expected_suffix:
+            points[f"{corner}_{expected_suffix}"] = points.pop(name)
+
+    member_mounts = _read_deformable_members(data, points)
+    for name in member_mounts:
+        length = math.dist(points[f"{name}_A"], points[f"{name}_B"])
+        if not math.isfinite(length) or length <= 1e-9:
+            raise ValueError(f"{name} 的兩端太近，或座標超出數值範圍。")
+    model = build_model(points, member_mounts=member_mounts)
+    rods = {rod.name: rod for rod in model.rods}
+    for corner, mount in overrides.items():
+        pushrod = rods.get(f"{corner}_PUSH_ROD")
+        body = f"{corner}_{mount}"
+        if pushrod is None or body not in model.bodies or model.owners.get(pushrod.a) != body:
+            raise ValueError(f"{corner} 需要完整的 {mount} 與推桿幾何才能使用指定的安裝位置。")
+    return model
 
 
 def write_hardpoint_csv(path, points, member_mounts):
@@ -252,7 +302,7 @@ def build_model(hardpoints, topology=None, *, member_mounts=None):
         owners[cop] = CHASSIS
     rods, bodies, joints, edges, notes = [], [], [], [], []
     if added_rods:
-        notes.append(f"已匯入 {len(added_rods)} 支 CSV 定義的軸力桿件。請設定外載後求解。")
+        notes.append(f"已匯入 {len(added_rods)} 支軸力桿件。請設定外載後求解。")
     contacts = {wheel.corner: wheel.contact for wheel in wheels}
     for corner, local in corners.items():
         if not (ARM_POINTS & local.keys() or corner in contacts):
@@ -268,7 +318,7 @@ def build_model(hardpoints, topology=None, *, member_mounts=None):
         if "WC" in local:
             edges.append((local["WC"], contacts[corner]))
 
-        outboard = [key for key in ("PUSH_OUT", "PUSH_OUT_UCA", "PUSH_OUT_UPRIGHT") if key in local]
+        outboard = [key for key in PUSHROD_SUFFIXES.values() if key in local]
         if len(outboard) > 1:
             raise ValueError(f"{corner} 有多個推桿外端，請保留一個。")
         push = outboard[0] if outboard else None

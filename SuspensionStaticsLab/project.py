@@ -1,4 +1,4 @@
-"""Save a self-contained suspension statics project as JSON."""
+"""Load suspension projects and save self-contained statics project JSON."""
 
 from dataclasses import asdict, dataclass
 import json
@@ -7,12 +7,14 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from .history import DEFAULT_RISE_S, rise_seconds
-from .load_cases import CASES, STATIC, downforce_newtons
-from .model import Model, build_model, number
+from .load_cases import (ACCEL, CASES, DEFAULT_ACCELERATION, DEFAULT_TIRE_MU, MASS_KG, STATIC,
+                         downforce_newtons, tire_mu_coefficient)
+from .model import Model, build_kinematics_model, build_model, number
 from .solver import Load, Section
 
 
 FORMAT = "SuspensionStaticsLab"
+KINEMATICS_FORMAT = "JacobianKinematicsLab"
 SCHEMA_VERSION = 1
 
 
@@ -28,6 +30,8 @@ class Project:
     include_gravity: bool
     rise_time_s: float = DEFAULT_RISE_S
     downforce_n: float | None = None
+    source_format: str = FORMAT
+    tire_mu: float = DEFAULT_TIRE_MU
 
 
 def vector(values, label):
@@ -36,10 +40,19 @@ def vector(values, label):
     return tuple(number(value, label) for value in values)
 
 
+def is_kinematics_project(data):
+    return isinstance(data, dict) and "format" not in data and "points" in data
+
+
 def load_project(path):
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    if is_kinematics_project(data):
+        model = build_kinematics_model(data)
+        sections = {rod.name: Section() for rod in model.rods}
+        return Project(model, None, [], sections, ACCEL, MASS_KG, DEFAULT_ACCELERATION, True,
+                       source_format=KINEMATICS_FORMAT)
     if not isinstance(data, dict) or data.get("format") != FORMAT:
-        raise ValueError("請選擇 SuspensionStaticsLab 專案 JSON。")
+        raise ValueError("請選擇 SuspensionStaticsLab 或 JacobianKinematicsLab 專案 JSON。")
     if type(data.get("schema_version")) is not int or data["schema_version"] != SCHEMA_VERSION:
         raise ValueError("此專案的檔案版本目前無法開啟。")
 
@@ -86,12 +99,13 @@ def load_project(path):
 
     settings = data.get("case_settings")
     case = settings.get("case") if isinstance(settings, dict) else None
-    if case == "空力下壓":
-        case = STATIC  # The saved loads are restored independently of the selected preset.
+    legacy_static = case in (STATIC, "static", "空力下壓")
+    if legacy_static:
+        case = ACCEL
     if case not in CASES:
         raise ValueError("專案的工況設定有誤。")
     mass = number(settings.get("mass_kg"), "重心質量")
-    acceleration = vector(settings.get("acceleration_mps2"), "重心加速度")
+    acceleration = DEFAULT_ACCELERATION if legacy_static else vector(settings.get("acceleration_mps2"), "重心加速度")
     gravity = settings.get("include_gravity")
     if type(gravity) is not bool:
         raise ValueError("專案需要有效的重力勾選狀態。")
@@ -99,7 +113,8 @@ def load_project(path):
     downforce = settings.get("downforce_n")
     if downforce is not None:
         downforce = downforce_newtons(downforce)
-    return Project(model, topology, loads, sections, case, mass, acceleration, gravity, rise, downforce)
+    tire_mu = tire_mu_coefficient(settings.get("tire_mu", DEFAULT_TIRE_MU))
+    return Project(model, topology, loads, sections, case, mass, acceleration, gravity, rise, downforce, tire_mu=tire_mu)
 
 
 def save_project(path, project):
@@ -118,6 +133,7 @@ def save_project(path, project):
             "include_gravity": project.include_gravity,
             "rise_time_s": project.rise_time_s,
             "downforce_n": project.downforce_n,
+            "tire_mu": tire_mu_coefficient(project.tire_mu),
         },
     }
     if project.model.member_mounts:

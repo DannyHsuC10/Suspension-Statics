@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .load_cases import ACCEL, GRAVITY, example_loads
+from .load_cases import ACCEL, DEFAULT_TIRE_MU, GRAVITY, GRIP, example_loads
 from .model import CORNERS, number
 from .solver import FrameError, Load, solve_frames
 
@@ -82,24 +82,29 @@ def solve_history(model, times, loads, acceleration, source):
     return History(times, tuple(loads), equilibria, values, acceleration, source)
 
 
-def acceleration_frames(model, times, accelerations, mass_kg, include_gravity, *, downforce_n=0.):
+def acceleration_frames(model, times, accelerations, mass_kg, include_gravity, *, downforce_n=0.,
+                        tire_mu=DEFAULT_TIRE_MU, case=ACCEL):
+    if case not in (ACCEL, GRIP):
+        raise ValueError("加速度歷程需要重心加速或摩擦圓工況。")
     frames = []
     for at, acceleration in zip(times, accelerations):
         try:
-            loads = example_loads(model, ACCEL, mass_kg=mass_kg, acceleration_mps2=acceleration,
-                                  include_gravity=include_gravity, downforce_n=downforce_n)
+            loads = example_loads(model, case, mass_kg=mass_kg, acceleration_mps2=acceleration,
+                                  include_gravity=include_gravity, downforce_n=downforce_n, tire_mu=tire_mu)
         except ValueError as error:
             raise ValueError(f"t = {at:.6g} s：{error}") from error
         frames.append(loads)
     return frames
 
 
-def acceleration_history(model, duration, acceleration, *, mass_kg, include_gravity, downforce_n=0.):
+def acceleration_history(model, duration, acceleration, *, mass_kg, include_gravity, downforce_n=0.,
+                         tire_mu=DEFAULT_TIRE_MU, case=ACCEL):
     duration = rise_seconds(duration)
     times = np.linspace(0., duration, RISE_SAMPLES)
     ratios = np.linspace(0., 1., RISE_SAMPLES)
     accelerations = np.outer(ratios, acceleration)
-    frames = acceleration_frames(model, times, accelerations, mass_kg, include_gravity, downforce_n=downforce_n)
+    frames = acceleration_frames(model, times, accelerations, mass_kg, include_gravity,
+                                 downforce_n=downforce_n, tire_mu=tire_mu, case=case)
     return solve_history(model, times, frames, accelerations, "重心加速上升歷程")
 
 
@@ -151,7 +156,7 @@ def read_lap_csv(path):
     return np.asarray(times), np.asarray(force_rows) if direct else None, np.asarray(accel_rows)
 
 
-def lap_history(model, path, *, mass_kg, include_gravity):
+def lap_history(model, path, *, mass_kg, include_gravity, downforce_n=0., tire_mu=DEFAULT_TIRE_MU, case=ACCEL):
     times, forces, accelerations = read_lap_csv(path)
     if forces is not None:
         wheels = {wheel.corner: wheel.contact for wheel in model.wheels}
@@ -161,6 +166,7 @@ def lap_history(model, path, *, mass_kg, include_gravity):
                   for row in forces.reshape(-1, 4, 3)]
         source = "CSV 四輪接地力"
     else:
-        frames = acceleration_frames(model, times, accelerations, mass_kg, include_gravity)
+        frames = acceleration_frames(model, times, accelerations, mass_kg, include_gravity,
+                                     downforce_n=downforce_n, tire_mu=tire_mu, case=case)
         source = "CSV 加速度換算輪荷"
     return solve_history(model, times, frames, accelerations, f"{Path(path).name} · {source}")

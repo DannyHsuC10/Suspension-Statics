@@ -8,10 +8,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import project
+from .grip_view import GripPlot
 from .history import DEFAULT_RISE_S, acceleration_history, lap_history, rise_seconds
 from .history_view import HistoryPanel
-from .load_cases import (ACCEL, CASES, DEFAULT_ACCELERATION, DESCRIPTIONS, GRAVITY, MASS_KG, STATIC,
-                         downforce_newtons, example_loads)
+from .load_cases import (DEFAULT_ACCELERATION, DEFAULT_TIRE_MU, GRIP, MASS_KG, downforce_newtons,
+                         example_loads, grip_acceleration_limit, tire_mu_coefficient)
 from .model import CHASSIS, EXAMPLE, build_model, load_model_csv, number, read_topology, write_hardpoint_csv
 from .section_view import SectionSketch
 from .solver import Load, Section, member_results, solve
@@ -142,11 +143,10 @@ class App:
         self.status = tk.StringVar(root)
         self.selection = tk.StringVar(root, value="點選硬點或桿件以查看明細")
         self.result_summary = tk.StringVar(root)
-        self.case = tk.StringVar(root, value=STATIC)
-        self.case_note = tk.StringVar(root, value=DESCRIPTIONS[STATIC])
         self.mass_input = tk.StringVar(root, value=numeric(MASS_KG))
         self.acceleration_inputs = [tk.StringVar(root, value=numeric(value)) for value in DEFAULT_ACCELERATION]
-        self.acceleration_magnitude = tk.StringVar(root)
+        self.tire_mu = tk.StringVar(root, value=numeric(DEFAULT_TIRE_MU))
+        self.grip_summary = tk.StringVar(root)
         self.include_gravity = tk.BooleanVar(root, value=True)
         self.include_downforce = tk.BooleanVar(root, value=False)
         self.downforce_input = tk.StringVar(root, value="0")
@@ -226,33 +226,36 @@ class App:
 
     def create_load_tab(self):
         tab = self.load_tab
-        ttk.Label(tab, text="範例載入", style="Heading.TLabel").pack(anchor="w")
-        cases = ttk.Frame(tab)
-        cases.pack(fill="x", pady=(6, 4))
-        choice = ttk.Combobox(cases, state="readonly", values=CASES, textvariable=self.case, width=17)
-        choice.pack(side="left", padx=(0, 6))
-        ttk.Button(cases, text="套用範例", command=self.apply_example).pack(side="left")
-        self.case_fields = ttk.Frame(tab)
-        entry_fields(self.case_fields, ("重心質量 kg", "ax m/s²", "ay m/s²", "az m/s²"),
-                     (self.mass_input, *self.acceleration_inputs))
-        gravity_toggle = ttk.Checkbutton(self.case_fields, text=f"計入重力（g = {GRAVITY:g} m/s²，向下）",
-                                         variable=self.include_gravity)
-        gravity_toggle.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        ttk.Label(self.case_fields, textvariable=self.acceleration_magnitude, style="Muted.TLabel").grid(
-            row=2, column=2, columnspan=2, sticky="e", padx=(0, 6), pady=(4, 0))
-        ttk.Checkbutton(self.case_fields, text="啟用額外下壓力（N）", variable=self.include_downforce).grid(
-            row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.downforce_entry = ttk.Entry(self.case_fields, textvariable=self.downforce_input, width=9)
-        self.downforce_entry.grid(row=3, column=2, sticky="ew", padx=(0, 6), pady=(4, 0))
+        header = ttk.Frame(tab)
+        header.pack(fill="x", pady=(0, 4))
+        ttk.Label(header, text="摩擦圓", style="Heading.TLabel").pack(side="left")
+        ttk.Button(header, text="套用加速度", command=self.apply_example).pack(side="right")
+        settings = ttk.Frame(tab)
+        settings.pack(fill="x")
+        settings.columnconfigure(0, weight=1)
+        settings.columnconfigure(1, weight=1)
+        inputs = ttk.Frame(settings)
+        inputs.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        mass_grip = ttk.Frame(inputs)
+        mass_grip.pack(fill="x")
+        entry_fields(mass_grip, ("質量 kg", "抓地 μ"), (self.mass_input, self.tire_mu))
+        acceleration = ttk.Frame(inputs)
+        acceleration.pack(fill="x", pady=(4, 0))
+        entry_fields(acceleration, ("ax", "ay", "az"), self.acceleration_inputs)
+        ttk.Checkbutton(inputs, text="計入重力", variable=self.include_gravity).pack(anchor="w", pady=(2, 0))
+        downforce = ttk.Frame(inputs)
+        downforce.pack(fill="x")
+        ttk.Checkbutton(downforce, text="下壓力 N", variable=self.include_downforce).pack(side="left", padx=(0, 4))
+        self.downforce_entry = ttk.Entry(downforce, textvariable=self.downforce_input, width=7)
+        self.downforce_entry.pack(side="left")
+        self.grip_plot = GripPlot(settings, self.select_grip_acceleration)
+        self.grip_plot.grid(row=0, column=1, sticky="nsew")
+        ttk.Label(tab, textvariable=self.grip_summary, style="Muted.TLabel", wraplength=420).pack(anchor="w", pady=(4, 0))
         self.include_downforce.trace_add("write", self.update_downforce_entry)
         self.update_downforce_entry()
-        for var in self.acceleration_inputs:
-            var.trace_add("write", self.update_acceleration_magnitude)
-        self.update_acceleration_magnitude()
-        self.case_caption = ttk.Label(tab, textvariable=self.case_note, style="Muted.TLabel", wraplength=420)
-        self.case_caption.pack(anchor="w")
-        self.case.trace_add("write", self.update_case_form)
-        ttk.Separator(tab).pack(fill="x", pady=10)
+        for var in (self.mass_input, *self.acceleration_inputs, self.tire_mu, self.include_gravity, self.downforce_input):
+            var.trace_add("write", self.refresh_grip)
+        ttk.Separator(tab).pack(fill="x", pady=4)
 
         load_form = ttk.Frame(tab)
         load_form.pack(fill="x")
@@ -264,7 +267,7 @@ class App:
         self.targets.bind("<<ComboboxSelected>>", self.update_load_hint)
         ttk.Label(tab, textvariable=self.load_hint, style="Muted.TLabel", wraplength=420).pack(anchor="w", pady=(5, 0))
         xyz = ttk.Frame(tab)
-        xyz.pack(fill="x", pady=7)
+        xyz.pack(fill="x", pady=5)
         entry_fields(xyz, ("X 分量", "Y 分量", "Z 分量"), self.load_values)
         xyz.columnconfigure(3, weight=1)
         ttk.Label(xyz, textvariable=self.load_magnitude_label, style="Muted.TLabel").grid(row=0, column=3, sticky="w")
@@ -273,7 +276,7 @@ class App:
             var.trace_add("write", self.update_load_magnitude)
         self.update_load_magnitude()
         buttons = ttk.Frame(tab)
-        buttons.pack(fill="x", pady=(0, 8))
+        buttons.pack(fill="x", pady=(0, 5))
         for label, action in (("新增", self.add_load), ("更新選取", self.update_load), ("刪除選取", self.delete_load), ("清空", self.clear_loads)):
             ttk.Button(buttons, text=label, command=action).pack(side="left", padx=(0, 4))
         ttk.Label(tab, textvariable=self.total_force, style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
@@ -334,36 +337,48 @@ class App:
     def load_demo(self):
         try:
             model = load_model_csv(EXAMPLE)
-            loads = example_loads(model, STATIC)
+            loads = example_loads(model, GRIP)
             self.topology = None
             self.set_model(model, "內建硬點", reset=True, loads=loads)
-            self.case.set(STATIC)
+            self.mass_input.set(numeric(MASS_KG))
+            for var, value in zip(self.acceleration_inputs, DEFAULT_ACCELERATION):
+                var.set(numeric(value))
+            self.tire_mu.set(numeric(DEFAULT_TIRE_MU))
+            self.include_gravity.set(True)
+            self.include_downforce.set(False)
+            self.downforce_input.set("0")
             self.solve_model(show=False)
         except (ValueError, OSError, csv.Error) as error:
             self.show_error(error)
 
     def open_project(self):
-        path = filedialog.askopenfilename(parent=self.root, title="開啟懸吊靜力專案", filetypes=PROJECT_FILETYPES)
+        path = filedialog.askopenfilename(parent=self.root, title="開啟靜力或運動學專案",
+                                          filetypes=(("專案 JSON", "*.json"),))
         if not path:
             return
+        source = Path(path)
         try:
-            saved = project.load_project(path)
+            saved = project.load_project(source)
         except (OSError, ValueError) as error:
             self.show_error(f"無法開啟專案。{error}")
             return
-        self.set_model(saved.model, Path(path).name, reset=True, loads=saved.loads, sections=saved.sections)
+        self.set_model(saved.model, source.name, reset=True, loads=saved.loads, sections=saved.sections)
         self.topology = saved.topology
-        self.project_path = Path(path)
-        self.case.set(saved.case)
+        if saved.source_format == project.FORMAT:
+            self.project_path = source
         self.mass_input.set(repr(saved.mass_kg))
         for var, value in zip(self.acceleration_inputs, saved.acceleration_mps2):
             var.set(repr(value))
+        self.tire_mu.set(repr(saved.tire_mu))
         self.include_gravity.set(saved.include_gravity)
         self.downforce_input.set(repr(saved.downforce_n) if saved.downforce_n is not None else "0")
         self.include_downforce.set(saved.downforce_n is not None)
         self.rise_time.set(repr(saved.rise_time_s))
         self.tabs.select(self.load_tab)
-        self.set_status(f"已開啟 {self.project_path.name}。可以直接求解已儲存的外載。")
+        if saved.source_format == project.KINEMATICS_FORMAT:
+            self.set_status(f"已匯入 {source.name}。請在「外載工況」套用加速度或輸入外載。")
+        else:
+            self.set_status(f"已開啟 {source.name}。可以直接求解已儲存的外載。")
 
     def save_project(self, *, save_as=False):
         if self.model is None:
@@ -371,6 +386,7 @@ class App:
         try:
             mass, acceleration = self.read_acceleration_inputs()
             downforce = self.read_downforce_input()
+            tire_mu = tire_mu_coefficient(self.tire_mu.get())
         except ValueError as error:
             self.show_error(f"無法儲存專案。{error}")
             self.tabs.select(self.load_tab)
@@ -381,8 +397,9 @@ class App:
             self.show_error(f"無法儲存專案。{error}")
             self.tabs.select(self.history_tab)
             return
-        saved = project.Project(self.model, self.topology, self.loads, self.sections, self.case.get(),
-                                mass, acceleration, self.include_gravity.get(), rise, downforce_n=downforce)
+        saved = project.Project(self.model, self.topology, self.loads, self.sections, GRIP,
+                                mass, acceleration, self.include_gravity.get(), rise, downforce_n=downforce,
+                                tire_mu=tire_mu)
         path = self.project_path
         if path is None or save_as:
             filename = filedialog.asksaveasfilename(parent=self.root, title="儲存懸吊靜力專案",
@@ -417,7 +434,8 @@ class App:
         if path:
             try:
                 topology = read_topology(path)
-                if isinstance(topology, dict) and topology.get("format") == project.FORMAT:
+                if isinstance(topology, dict) and (topology.get("format") == project.FORMAT
+                                                   or project.is_kinematics_project(topology)):
                     raise ValueError("請使用「開啟專案」載入此檔案。")
                 model = build_model(self.model.points, topology)
                 self.topology = topology
@@ -458,7 +476,8 @@ class App:
             mass, acceleration = self.read_acceleration_inputs()
             history = acceleration_history(self.model, self.rise_time.get(), acceleration,
                                            mass_kg=mass, include_gravity=self.include_gravity.get(),
-                                           downforce_n=self.read_downforce_input() or 0.)
+                                           downforce_n=self.read_downforce_input() or 0.,
+                                           tire_mu=self.tire_mu.get(), case=GRIP)
             self.install_history(history)
         except ValueError as error:
             self.show_error(error)
@@ -471,7 +490,9 @@ class App:
             return
         try:
             history = lap_history(self.model, path, mass_kg=self.mass_input.get(),
-                                  include_gravity=self.include_gravity.get())
+                                  include_gravity=self.include_gravity.get(),
+                                  downforce_n=self.downforce_input.get() if self.include_downforce.get() else 0.,
+                                  tire_mu=self.tire_mu.get(), case=GRIP)
             self.install_history(history)
         except (OSError, ValueError, csv.Error) as error:
             self.show_error(error)
@@ -563,11 +584,9 @@ class App:
             xyz = ", ".join(map(numeric, total))
             self.total_force.set(f"載荷表合力 ({xyz}) N　 |ΣF| {numeric(magnitude)} N")
 
-    def update_acceleration_magnitude(self, *_):
-        self.acceleration_magnitude.set(f"輸入合加速度 {input_magnitude(self.acceleration_inputs)} m/s²")
-
     def update_downforce_entry(self, *_):
         self.downforce_entry.configure(state="normal" if self.include_downforce.get() else "disabled")
+        self.refresh_grip()
 
     def update_load_magnitude(self, *_):
         self.load_magnitude_label.set("合力 (N)" if self.load_kind.get() == FORCE else "合力矩 (N·m)")
@@ -587,33 +606,36 @@ class App:
     def apply_example(self):
         if self.model is None:
             return
-        kind = self.case.get()
-        description = kind
         try:
-            if kind == ACCEL:
-                mass, acceleration = self.read_acceleration_inputs()
-                gravity = self.include_gravity.get()
-                downforce = self.read_downforce_input() or 0.
-                self.loads = example_loads(self.model, kind, mass_kg=mass, acceleration_mps2=acceleration,
-                                           include_gravity=gravity, downforce_n=downforce)
-                options = ["含重力"] if gravity else []
-                if downforce:
-                    options.append(f"下壓力 {numeric(downforce)} N")
-                description += f"（{'、'.join(options or ['僅計輸入加速度'])}）"
-            else:
-                self.loads = example_loads(self.model, kind)
+            mass, acceleration = self.read_acceleration_inputs()
+            self.loads = example_loads(self.model, GRIP, mass_kg=mass, acceleration_mps2=acceleration,
+                                       include_gravity=self.include_gravity.get(),
+                                       downforce_n=self.read_downforce_input() or 0., tire_mu=self.tire_mu.get())
         except ValueError as error:
             self.show_error(error)
             return
-        self.finish_load_edit(message=f"已套用「{description}」。可編輯各列外載後求解。")
+        self.finish_load_edit(message="已套用摩擦圓加速度。可編輯各列外載後求解。")
 
-    def update_case_form(self, *_):
-        kind = self.case.get()
-        self.case_note.set(DESCRIPTIONS[kind])
-        if kind == ACCEL:
-            self.case_fields.pack(fill="x", before=self.case_caption, pady=(2, 6))
-        else:
-            self.case_fields.pack_forget()
+    def refresh_grip(self, *_):
+        try:
+            limit = grip_acceleration_limit(self.mass_input.get(), self.acceleration_inputs[2].get(),
+                                            include_gravity=self.include_gravity.get(),
+                                            downforce_n=self.read_downforce_input() or 0., tire_mu=self.tire_mu.get())
+        except ValueError as error:
+            self.grip_summary.set(str(error))
+            self.grip_plot.set_data(None)
+            return
+        try:
+            ax, ay = (number(var.get(), f"{axis} 軸加速度") for var, axis in zip(self.acceleration_inputs, "XY"))
+        except ValueError:
+            ax = ay = 0.
+        note = "輸入超出範圍" if hypot(ax, ay) > limit * (1. + 1e-12) else "拖曳設定 ax、ay（m/s²）"
+        self.grip_summary.set(f"水平加速度上限 {numeric(limit)} m/s²　·　{note}")
+        self.grip_plot.set_data(limit, ax, ay)
+
+    def select_grip_acceleration(self, ax, ay):
+        for variable, value in zip(self.acceleration_inputs, (ax, ay)):
+            variable.set(repr(value))
 
     def choose_load(self, _event=None):
         selected = self.load_tree.selection()
