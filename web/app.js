@@ -1,5 +1,5 @@
 import {
-  accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv,
+  accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv, GRAVITY,
   historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, sectionProperties, solve,
 } from "./engine.js";
 import {
@@ -138,7 +138,9 @@ function renderPreset() {
   $("preset-hint").textContent = presetHints[preset];
   $("downforce").disabled = !$("enable-downforce").checked;
   const acceleration = ["ax", "ay", "az"].map(axis => $(axis).valueAsNumber);
-  $("acceleration-magnitude").textContent = `Input acceleration magnitude ${display(Math.hypot(...acceleration))} m/s²`;
+  const magnitude = display(Math.hypot(...acceleration));
+  const lateralCoefficient = display(acceleration[1] / GRAVITY);
+  $("acceleration-magnitude").textContent = `Input acceleration magnitude ${magnitude} m/s² · Lateral coefficient μ = ${lateralCoefficient}`;
 }
 
 function install(model, source, { topology = null, loads = [], sections = {}, resetView = true } = {}) {

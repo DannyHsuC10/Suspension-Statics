@@ -758,7 +758,7 @@ export function exampleLoads(model, caseName, settings = {}) {
     throw new Error('This case needs a rigid body or chassis assigned to the CG and all tire contacts.');
   }
   const relative = contacts.map((point) => subtract(model.points[point], model.points[model.cg]));
-  const balance = [[1, 1, 1, 1], relative.map((point) => point[1]), relative.map((point) => -point[0])];
+  const geometryBalance = [[1, 1, 1, 1], relative.map((point) => point[1]), relative.map((point) => -point[0])];
   const mass = number(settings.massKg ?? settings.mass_kg ?? MASS_KG, 'Vehicle mass');
   if (mass <= 0) throw new Error('Vehicle mass must be positive.');
   const gravity = caseName !== ACCEL || (settings.includeGravity ?? settings.include_gravity ?? true) ? GRAVITY : 0;
@@ -774,20 +774,27 @@ export function exampleLoads(model, caseName, settings = {}) {
   if (Math.abs(frontX - rearX) < 1e-6) throw new Error('Front and rear axles need different X positions.');
   const share = -rearX / (frontX - rearX);
   const nominal = [share / 2, share / 2, (1 - share) / 2, (1 - share) / 2];
-  const distribution = leastSquares(balance, 4);
-  if (distribution.rank < 3) throw new Error('The tire contacts do not span a usable area in the XY plane.');
-  const correction = distribution.compute(subtract([1, 0, 0], balance.map((row) => dot(row, nominal))));
+  const geometryDistribution = leastSquares(geometryBalance, 4);
+  if (geometryDistribution.rank < 3) throw new Error('The tire contacts do not span a usable area in the XY plane.');
+  const correction = geometryDistribution.compute(subtract([1, 0, 0], geometryBalance.map((row) => dot(row, nominal))));
   const shares = nominal.map((value, index) => value + correction[index]);
-  const reactions = shares.map((value) => [-value * inertial[0], -value * inertial[1], 0]);
-  const moment = [0, 0, 0];
-  relative.forEach((point, index) => {
-    const contribution = cross(point, reactions[index]);
-    for (let axis = 0; axis < 3; axis += 1) moment[axis] += contribution[axis];
-  });
+  const longitudinal = scale(shares, -inertial[0]);
+  const lateralRatio = acceleration[1] / GRAVITY;
+  // Fy = lateralRatio * Fz makes each tire's roll lever arm y − lateralRatio * z.
+  const verticalBalance = lateralRatio === 0 ? geometryBalance
+    : [geometryBalance[0], relative.map((point) => point[1] - lateralRatio * point[2]), geometryBalance[2]];
+  const verticalDistribution = lateralRatio === 0 ? geometryDistribution : leastSquares(verticalBalance, 4);
+  if (verticalDistribution.rank < 3) {
+    throw new Error('The effective tire contact positions cannot resolve roll and pitch balance at this lateral acceleration.');
+  }
+  const pitchMoment = dot(relative.map((point) => point[2]), longitudinal);
   const initial = scale(shares, apparentWeight);
-  const target = [apparentWeight, -moment[0], -moment[1]];
-  const increment = distribution.compute(subtract(target, balance.map((row) => dot(row, initial))));
-  reactions.forEach((reaction, index) => { reaction[2] = initial[index] + increment[index]; });
+  const target = [apparentWeight, 0, -pitchMoment];
+  const increment = verticalDistribution.compute(subtract(target, verticalBalance.map((row) => dot(row, initial))));
+  const reactions = initial.map((value, index) => {
+    const normal = value + increment[index];
+    return [longitudinal[index], lateralRatio * normal, normal];
+  });
   if (reactions.some((reaction) => !reaction.every(Number.isFinite))) throw new Error('Tire loads exceed the numerical range.');
   if (reactions.some((reaction) => reaction[2] < -1e-6)) {
     throw new Error('The example distribution gives negative normal load at one or more tires. Adjust the CG or acceleration, or enter wheel loads directly.');

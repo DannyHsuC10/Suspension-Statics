@@ -128,30 +128,36 @@
               \mathbf F_{\mathrm{CG}}=(-ma_x,\,-ma_y,\,-W).
             \]
           </div>
-          <p>Use \(g=9.81\,\mathrm{m/s^2}\) when gravity is enabled and zero otherwise. The static preset uses \(\mathbf a=\mathbf 0\) and \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
+          <p>Use \(g=g_0\) when gravity is enabled and \(g=0\) otherwise, with fixed reference \(g_0=9.81\,\mathrm{m/s^2}\). The static preset uses \(\mathbf a=\mathbf 0\) and \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
 
           <h3>Estimated four-wheel shares</h3>
-          <p>With wheel positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the preset starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the balance matrix \(B\) and corrected shares \(\mathbf s\) satisfy</p>
+          <p>With contact positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the preset starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the nominal balance matrix \(B_0\) and corrected shares \(\mathbf s\) satisfy</p>
           <div class="method-equation">
             \[
-              B=\begin{bmatrix}
+              B_0=\begin{bmatrix}
                 1&amp;1&amp;1&amp;1\\
                 y_{FL}&amp;y_{FR}&amp;y_{RL}&amp;y_{RR}\\
                 -x_{FL}&amp;-x_{FR}&amp;-x_{RL}&amp;-x_{RR}
               \end{bmatrix},\qquad
-              B\mathbf s=\begin{bmatrix}1\\0\\0\end{bmatrix}.
+              B_0\mathbf s=\begin{bmatrix}1\\0\\0\end{bmatrix}.
             \]
           </div>
-          <p>Wheel \(i\) gets horizontal forces \(F_{x,i}=s_i ma_x\) and \(F_{y,i}=s_i ma_y\). Those forces produce the moment \(\mathbf M_h=\sum_i \mathbf p_i\times(F_{x,i},F_{y,i},0)\). The preset estimates vertical forces with a minimum-norm correction to the initial vector \(W\mathbf s\), targeting</p>
+          <p>Each wheel’s longitudinal force uses its nominal share. Its lateral force is proportional to the wheel’s solved normal load, using the signed lateral acceleration in units of \(g_0\). The reference value \(g_0\) also applies with gravity disabled.</p>
           <div class="method-equation">
             \[
-              B\mathbf F_z=
-              \begin{bmatrix}
-                W\\-M_{h,x}\\-M_{h,y}
-              \end{bmatrix}.
+              \mu_y=\frac{a_y}{g_0},\qquad
+              F_{x,i}=s_i ma_x,\qquad F_{y,i}=\mu_y F_{z,i}.
             \]
           </div>
-          <p>The algorithm checks for negative vertical contact force and reports possible wheel lift. It uses a fixed-pose force and moment balance with an assumed load distribution. Enter contact forces directly when a measured or independently calculated tire load is available. The member equilibrium still checks those contact forces against the suspension’s joint and member constraints.</p>
+          <p>The preset applies the smallest Euclidean correction to \(W\mathbf s\) that satisfies vertical force balance and roll and pitch moment balance about the CG. In the roll equation, the lateral force contributes \(-z_i F_{y,i}\). In the pitch equation, the longitudinal force contributes \(z_i F_{x,i}\).</p>
+          <div class="method-equation">
+            \[
+              (B_\mu)_{:,i}=\begin{bmatrix}1\\y_i-\mu_y z_i\\-x_i\end{bmatrix},
+              \qquad B_\mu\mathbf F_z=\begin{bmatrix}W\\0\\-\sum_i z_i F_{x,i}\end{bmatrix}.
+            \]
+          </div>
+          <p>Total lateral tire force is \(\sum_i F_{y,i}=\mu_y W\), which equals \(ma_y\) when \(W=mg_0\). Downforce, vertical acceleration, or disabling gravity can change \(W\) and leave a lateral force difference. That difference appears as chassis support force \(R_y=ma_y-\mu_y W\). Any net yaw moment about the CG also appears, with reversed sign, in the chassis support moment.</p>
+          <p>A negative vertical contact force triggers a possible wheel lift warning. The calculation uses fixed hardpoints and assumes a load distribution. Contact forces supplied directly or in a measured four-wheel CSV are used as entered. The member equilibrium still checks those forces against the suspension’s joints and members.</p>
         </section>
 
         <section id="sections">
@@ -202,8 +208,8 @@
 
         <section id="history">
           <h2>Force history</h2>
-          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Enabled gravity and CG downforce are constant across the ramp. Changing the duration changes the time scale and acceleration slope, while each sample uses equilibrium on the same hardpoints.</p>
-          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. Otherwise longitudinal and lateral acceleration channels estimate contact forces using the selected mass and gravity setting. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
+          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Enabled gravity and CG downforce are constant across the ramp. Changing the duration changes the time scale and acceleration slope, while each sample applies the acceleration preset at the same hardpoints.</p>
+          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. Otherwise longitudinal and lateral acceleration channels estimate contact forces with the acceleration load distribution, using the selected mass and gravity setting. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
           <p>The signed peak is the sample with the largest absolute force and retains its sign. The two means are time-weighted and use piecewise-linear interpolation, including exact integration of the two triangles when the force crosses zero inside an interval.</p>
           <div class="method-equation">
             \[
