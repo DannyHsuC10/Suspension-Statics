@@ -443,10 +443,10 @@ function renderSectionPreview() {
     const section = readSection();
     const properties = sectionProperties(section);
     drawSection($("section-preview"), section);
-    list.replaceChildren(...propertyDefinitions.map(([label, key, unit]) => metric(label, `${display(properties[key])} ${unit}`)));
+    list.replaceChildren(...propertyDefinitions.map(([label, key, unit]) => metric(`${label}:`, `${display(properties[key])} ${unit}`)));
   } catch (error) {
     drawSection($("section-preview"), null);
-    list.replaceChildren(metric("Section properties", error.message));
+    list.replaceChildren(metric("Section properties:", error.message));
   }
 }
 
