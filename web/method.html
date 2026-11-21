@@ -121,7 +121,7 @@
 
         <section id="loads">
           <h2>Load cases and contact forces</h2>
-          <p>Direct input applies an XYZ force at a hardpoint or a pure couple to a rigid body. Multiple load entries add linearly. The CG acceleration preset combines weight, optional downforce \(D\) at the CG, and the equivalent inertia force for acceleration \(\mathbf a=(a_x,a_y,a_z)\).</p>
+          <p>Direct input applies an XYZ force at a hardpoint or a pure couple to a rigid body. Multiple load entries add linearly. Applying acceleration from the friction circle combines weight, optional downforce \(D\) at the CG, and the equivalent inertia force for acceleration \(\mathbf a=(a_x,a_y,a_z)\).</p>
           <div class="method-equation">
             \[
               \mathbf F_{\mathrm{inertial}}=-m\mathbf a,\qquad
@@ -129,10 +129,10 @@
               \mathbf F_{\mathrm{CG}}=(-ma_x,\,-ma_y,\,-W).
             \]
           </div>
-          <p>Use \(g=g_0\) when gravity is enabled and \(g=0\) otherwise, with fixed reference \(g_0=9.81\,\mathrm{m/s^2}\). For a gravity-only static case, select CG acceleration, use \(\mathbf a=\mathbf 0\), leave gravity enabled, and set \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
+          <p>Use \(g=g_0\) when gravity is enabled and \(g=0\) otherwise, with fixed reference \(g_0=9.81\,\mathrm{m/s^2}\). For a gravity-only static case, use \(\mathbf a=\mathbf 0\), leave gravity enabled, and set \(D=0\).</p>
 
           <h3>Estimated four-wheel shares</h3>
-          <p>With contact positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the preset starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the nominal balance matrix \(B_0\) and corrected shares \(\mathbf s\) satisfy</p>
+          <p>With contact positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the load estimate starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the nominal balance matrix \(B_0\) and corrected shares \(\mathbf s\) satisfy</p>
           <div class="method-equation">
             \[
               B_0=\begin{bmatrix}
@@ -143,34 +143,12 @@
               B_0\mathbf s=\begin{bmatrix}1\\0\\0\end{bmatrix}.
             \]
           </div>
-          <p>The acceleration \(a_y\) sets lateral demand \(ma_y\). The independent tire coefficient \(\mu\) is dimensionless, must be nonnegative, and defaults to 1. The preset checks whether the tires can supply the requested lateral force with the available normal load.</p>
-          <div class="method-equation">
-            \[
-              W=\sum_i F_{z,i},\qquad |ma_y|\le\mu W.
-            \]
-          </div>
-          <p>In the CG acceleration preset, for \(W>0\) and feasible demand, the signed ratio \(k_y=ma_y/W\) distributes \(ma_y\) in proportion to the solved normal loads. Longitudinal force keeps its nominal share. This preset checks the lateral component alone.</p>
-          <div class="method-equation">
-            \[
-              F_{x,i}=s_i ma_x,\qquad
-              F_{y,i}=k_y F_{z,i},\qquad
-              \sum_i F_{y,i}=ma_y.
-            \]
-          </div>
-          <p>With \(W=0\), only zero lateral demand is feasible and the lateral ratio is set to zero. The preset applies the smallest Euclidean correction to \(W\mathbf s\) that satisfies vertical force balance and roll and pitch moment balance about the CG. Lateral force contributes \(-z_i F_{y,i}\) to roll, and longitudinal force contributes \(z_i F_{x,i}\) to pitch.</p>
-          <div class="method-equation">
-            \[
-              (B_y)_{:,i}=\begin{bmatrix}1\\y_i-k_y z_i\\-x_i\end{bmatrix},
-              \qquad B_y\mathbf F_z=\begin{bmatrix}W\\0\\-\sum_i z_i F_{x,i}\end{bmatrix}.
-            \]
-          </div>
-          <p>The preset balances the lateral inertial force through the tires. Any net yaw moment about the CG appears, with reversed sign, in the chassis support moment. A negative normal load in the estimated distribution triggers a possible wheel lift warning. Contact forces supplied directly or in a measured four-wheel CSV are used as entered.</p>
-          <p>Project JSON stores the coefficient in <code>case_settings.tire_mu</code>. Earlier files without this field use 1.</p>
+          <p>The independent tire coefficient \(\mu\) is dimensionless, must be nonnegative, and defaults to 1. Project JSON stores it in <code>case_settings.tire_mu</code>. Contact forces supplied directly or in a measured four-wheel CSV are used as entered.</p>
         </section>
 
         <section id="grip-circle">
           <h2>Grip circle</h2>
-          <p>Choose the Grip circle preset and drag the point anywhere inside the diagram, with lateral acceleration \(a_y\) on the horizontal axis and longitudinal acceleration \(a_x\) on the vertical axis. Apply the preset to use the selected loads. Both acceleration axes have the same limit \(A\) in m/s². The diagram is stretched to an ellipse on screen, while the allowed acceleration region is a disk in data coordinates.</p>
+          <p>Drag the point anywhere inside the diagram or enter the acceleration numerically. Lateral acceleration \(a_y\) is on the horizontal axis and longitudinal acceleration \(a_x\) is on the vertical axis. Choose <strong>Apply acceleration</strong> to update the load table. Both acceleration axes have the same limit \(A\) in m/s². The diagram is stretched to an ellipse on screen, while the allowed acceleration region is a disk in data coordinates.</p>
           <div class="method-equation">
             \[
               A=\frac{\mu W}{m},\qquad
@@ -243,8 +221,8 @@
 
         <section id="history">
           <h2>Force history</h2>
-          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Each sample uses the selected mode, CG acceleration or Grip circle, with the same hardpoints, tire coefficient, gravity setting, and enabled CG downforce. Changing the duration changes the time scale and acceleration slope.</p>
-          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. An acceleration-only CSV uses the selected mode and the current mass, gravity, tire coefficient, and enabled downforce. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
+          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Each sample uses the friction-circle load distribution with the same hardpoints, tire coefficient, gravity setting, and enabled CG downforce. Changing the duration changes the time scale and acceleration slope.</p>
+          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. An acceleration-only CSV uses the friction-circle load distribution with the current mass, gravity, tire coefficient, and enabled downforce. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
           <p>The signed peak is the sample with the largest absolute force and retains its sign. The two means are time-weighted and use piecewise-linear interpolation, including exact integration of the two triangles when the force crosses zero inside an interval.</p>
           <div class="method-equation">
             \[

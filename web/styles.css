@@ -114,7 +114,6 @@ label > input:not([type=checkbox]), label > select { width: 100%; }
 .analysis-body { display: grid; gap: .62rem; padding: .82rem .86rem .9rem; }
 .section-heading { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
 .section-heading.separated { border-top: 1px solid var(--line); padding-top: .7rem; margin-top: .14rem; }
-.inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .48rem; }
 .input-grid { display: grid; gap: .55rem; }
 .two-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .three-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)); }

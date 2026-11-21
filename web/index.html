@@ -90,20 +90,8 @@
 
         <div id="panel-loads" class="analysis-body" role="tabpanel" aria-labelledby="tab-loads" tabindex="0">
           <div class="section-heading">
-            <h2>Load case</h2>
-            <button type="button" id="solve" class="primary" disabled>Solve member forces</button>
+            <h2>Friction circle</h2>
           </div>
-          <div class="inline-form">
-            <label for="preset">Preset
-              <select id="preset">
-                <option value="acceleration">CG acceleration</option>
-                <option value="grip-circle">Grip circle</option>
-                <option value="bump">Single-wheel bump</option>
-              </select>
-            </label>
-            <button type="button" id="apply-preset" disabled>Apply preset</button>
-          </div>
-          <p class="hint" id="preset-hint">Set lateral acceleration and tire grip independently. +X forward, +Y left, +Z up.</p>
           <div id="acceleration-settings" class="subpanel">
             <div class="input-grid four-inputs">
               <label>Mass (kg)<input id="mass" type="number" min="0" step="any" value="321"></label>
@@ -118,11 +106,14 @@
               <label class="compact-number"><span>Tire grip μ</span><input id="tire-mu" type="number" min="0" step="any" value="1"></label>
             </div>
             <p class="hint" id="acceleration-magnitude"></p>
-            <div id="grip-settings" hidden>
-              <h3>Horizontal acceleration</h3>
+            <div id="grip-settings">
               <canvas id="grip-plot" tabindex="0" aria-label="Grip circle acceleration picker. Use the arrow keys to move the point. Home resets it."></canvas>
               <p class="hint" id="grip-summary" aria-live="polite"></p>
-              <p class="hint">Drag to set lateral ay and longitudinal ax, then apply the preset.</p>
+              <p class="hint">Drag to set lateral ay and longitudinal ax.</p>
+            </div>
+            <div class="button-row">
+              <button type="button" id="apply-acceleration" disabled>Apply acceleration</button>
+              <button type="button" id="solve" class="primary" disabled>Solve member forces</button>
             </div>
           </div>
           <div class="section-heading separated">
