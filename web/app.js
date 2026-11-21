@@ -197,7 +197,7 @@ function install(model, source, { topology = null, loads = [], sections = {}, re
   renderHistory();
   syncButtons();
   status(model.memberMounts && Object.keys(model.memberMounts).length
-    ? `Imported ${Object.keys(model.memberMounts).length} axial member(s) with their endpoint mounts. Set loads and solve.`
+    ? `Imported ${Object.keys(model.memberMounts).length} axial member(s) with their endpoint mounts. Apply acceleration or enter external loads.`
     : "Geometry ready. Apply acceleration or enter external loads.");
 }
 
@@ -219,14 +219,14 @@ async function loadExample(name) {
   $("downforce").value = 0;
   renderAcceleration();
   switchTab("loads");
-  solveCurrent(false);
+  solveCurrent();
 }
 
 function syncButtons() {
   const model = Boolean(state.model);
   const members = Boolean(state.model?.rods.length);
   $("apply-acceleration").disabled = !model;
-  for (const id of ["solve", "apply-sections", "apply-all-sections", "generate-history"]) $(id).disabled = !members;
+  for (const id of ["apply-sections", "apply-all-sections", "generate-history"]) $(id).disabled = !members;
   $("clear-loads").disabled = !state.loads.length;
   $("add-load").disabled = !$("load-target").value;
   for (const id of ["update-load", "delete-load"]) $(id).disabled = state.loadIndex < 0;
@@ -334,12 +334,11 @@ function formLoad() {
   return candidate[0];
 }
 
-function setLoads(loads, message, active = -1) {
+function setLoads(loads, active = -1) {
   state.loads = loads;
   state.loadIndex = active;
-  clearStaticResults();
   renderLoads();
-  status(message);
+  solveCurrent();
 }
 
 function clearStaticResults() {
@@ -351,7 +350,7 @@ function clearStaticResults() {
   syncButtons();
 }
 
-function solveCurrent(show = true) {
+function solveCurrent() {
   try {
     const equilibrium = solve(state.model, state.loads);
     const results = memberResults(equilibrium, state.sections);
@@ -361,7 +360,6 @@ function solveCurrent(show = true) {
     renderResults();
     renderViewport();
     syncButtons();
-    if (show) switchTab("results");
     const freedom = equilibrium.rank < equilibrium.equations ? " This load balances with a remaining free direction." : "";
     status(`Solved ${Object.keys(results).length} axial members. Equilibrium rank ${equilibrium.rank}/${equilibrium.equations}.${freedom}`);
   } catch (error) {
@@ -382,7 +380,7 @@ function renderResults() {
   const items = Object.entries(state.results).sort((a, b) => Math.abs(b[1].stress_mpa) - Math.abs(a[1].stress_mpa));
   const body = $("result-rows");
   if (!items.length) {
-    emptyRow(body, 8, "Solve the current load case to view forces, stress and deformation.");
+    emptyRow(body, 8, "Apply acceleration or enter external loads to view forces, stress and deformation.");
     return;
   }
   body.replaceChildren(...items.map(([name, values]) => {
@@ -731,8 +729,8 @@ function loadImportedProject(saved, name) {
   $("rise-time").value = saved.riseTime;
   renderAcceleration();
   switchTab("loads");
-  const next = saved.loads.length ? "The saved loads are ready to solve." : "Apply acceleration or enter external loads.";
-  status(`Opened ${name}. ${next}`);
+  if (saved.loads.length) solveCurrent();
+  else status(`Opened ${name}. Apply acceleration or enter external loads.`);
 }
 
 function importJson(text, name) {
@@ -781,7 +779,7 @@ function importData(text, name) {
   } else if (["target", "end", "x", "y", "z"].every((column) => columns.has(column))) {
     if (!state.model) throw new Error("Import hardpoint geometry before applying external loads.");
     const loads = parseLoadsCsv(text, state.model);
-    setLoads(loads, `Imported ${loads.length} external loads.`);
+    setLoads(loads);
     switchTab("loads");
   } else {
     throw new Error("The CSV columns do not match hardpoints, external loads, or lap data.");
@@ -815,21 +813,19 @@ for (const id of ["enable-downforce", "downforce", "mass", "gravity", "ax", "ay"
 }
 $("apply-acceleration").addEventListener("click", () => perform(() => {
   const loads = exampleLoads(state.model, GRIP, readSettings());
-  setLoads(loads, "Acceleration applied.");
-  solveCurrent(false);
+  setLoads(loads);
 }));
-$("solve").addEventListener("click", () => solveCurrent());
 $("load-type").addEventListener("change", updateLoadTargets);
 $("load-target").addEventListener("change", updateLoadTargets);
 for (const id of ["load-x", "load-y", "load-z"]) $(id).addEventListener("input", renderLoadHint);
-$("add-load").addEventListener("click", () => perform(() => setLoads([...state.loads, formLoad()], "Load added. Solve to update the results.", state.loads.length)));
+$("add-load").addEventListener("click", () => perform(() => setLoads([...state.loads, formLoad()], state.loads.length)));
 $("update-load").addEventListener("click", () => perform(() => {
   const loads = state.loads.slice();
   loads[state.loadIndex] = formLoad();
-  setLoads(loads, "Load updated. Solve to update the results.", state.loadIndex);
+  setLoads(loads, state.loadIndex);
 }));
-$("delete-load").addEventListener("click", () => setLoads(state.loads.filter((_, index) => index !== state.loadIndex), "Load deleted."));
-$("clear-loads").addEventListener("click", () => setLoads([], "External loads cleared."));
+$("delete-load").addEventListener("click", () => setLoads(state.loads.filter((_, index) => index !== state.loadIndex)));
+$("clear-loads").addEventListener("click", () => setLoads([]));
 $("section-member").addEventListener("change", () => inspectSection($("section-member").value));
 for (const id of ["outer-mm", "inner-mm", "young-gpa"]) $(id).addEventListener("input", renderSectionPreview);
 $("apply-sections").addEventListener("click", () => perform(() => applySections(false)));
