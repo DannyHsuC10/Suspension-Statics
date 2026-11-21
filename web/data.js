@@ -1,14 +1,14 @@
 /** Portable project files and tabular exports for Suspension Statics Lab. */
 
 import {
-  ACCEL, BUMP, CORNERS, DEFAULT_ACCELERATION, DEFAULT_RISE_S, DEFAULT_SECTION, MASS_KG, STATIC,
-  buildModel, formatCsv, parseCsv, sectionProperties,
+  ACCEL, BUMP, CORNERS, DEFAULT_ACCELERATION, DEFAULT_RISE_S, DEFAULT_SECTION, DEFAULT_TIRE_MU, GRIP, MASS_KG, STATIC,
+  buildModel, formatCsv, parseCsv, sectionProperties, tireMuCoefficient,
 } from './engine.js';
 
 const FORMAT = 'SuspensionStaticsLab';
 const VERSION = 1;
 const CASE_LABELS = new Map([
-  [STATIC, '靜態負載'], [ACCEL, '重心加速'], [BUMP, '單輪受衝擊'],
+  [STATIC, '靜態負載'], [ACCEL, '重心加速'], [BUMP, '單輪受衝擊'], [GRIP, '摩擦圓工況'],
 ]);
 const CASE_IDS = new Map([
   ...Array.from(CASE_LABELS, ([id, label]) => [label, id]),
@@ -87,7 +87,7 @@ function validateSections(model, sections) {
 }
 
 function validateSettings(settings, riseTime) {
-  const { massKg, accelerationMps2, includeGravity, downforceN } = settings;
+  const { massKg, accelerationMps2, includeGravity, downforceN, tireMu } = settings;
   if (typeof includeGravity !== 'boolean') throw new Error('Project gravity setting must be true or false.');
   const downforce = downforceN == null ? null : finiteNumber(downforceN, 'Downforce');
   if (downforce < 0) throw new Error('Downforce must be zero or greater.');
@@ -99,6 +99,7 @@ function validateSettings(settings, riseTime) {
       accelerationMps2: xyzVector(accelerationMps2, 'CG acceleration'),
       includeGravity,
       downforceN: downforce,
+      tireMu: tireMuCoefficient(tireMu),
     },
     riseTime: duration,
   };
@@ -129,6 +130,7 @@ function nativeProject(data) {
     accelerationMps2: raw.acceleration_mps2,
     includeGravity: raw.include_gravity,
     downforceN: raw.downforce_n,
+    tireMu: raw.tire_mu,
   }, Object.hasOwn(raw, 'rise_time_s') ? raw.rise_time_s : DEFAULT_RISE_S);
   return { model, topology, sections, loads, caseName, ...configuration };
 }
@@ -206,7 +208,10 @@ function kinematicsProject(data) {
     loads: [],
     sections: Object.fromEntries(model.rods.map(({ name }) => [name, { ...DEFAULT_SECTION }])),
     caseName: STATIC,
-    settings: { massKg: MASS_KG, accelerationMps2: [...DEFAULT_ACCELERATION], includeGravity: true, downforceN: null },
+    settings: {
+      massKg: MASS_KG, accelerationMps2: [...DEFAULT_ACCELERATION], includeGravity: true, downforceN: null,
+      tireMu: DEFAULT_TIRE_MU,
+    },
     riseTime: DEFAULT_RISE_S,
   };
 }
@@ -237,6 +242,7 @@ export function formatProject({ model, topology = null, loads, sections, caseNam
       include_gravity: validated.includeGravity,
       rise_time_s: duration,
       downforce_n: validated.downforceN,
+      tire_mu: validated.tireMu,
     },
   };
   if (Object.keys(model.memberMounts).length) data.member_mounts = model.memberMounts;

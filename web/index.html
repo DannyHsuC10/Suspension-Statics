@@ -98,6 +98,7 @@
               <select id="preset">
                 <option value="static">Static load</option>
                 <option value="acceleration">CG acceleration</option>
+                <option value="grip-circle">Grip circle</option>
                 <option value="bump">Single-wheel bump</option>
               </select>
             </label>
@@ -115,8 +116,15 @@
               <label class="check"><input type="checkbox" id="gravity" checked> Include gravity</label>
               <label class="check"><input type="checkbox" id="enable-downforce"> Extra downforce</label>
               <label class="compact-number"><span>Downforce (N)</span><input id="downforce" type="number" min="0" step="any" value="0" disabled></label>
+              <label class="compact-number"><span>Tire grip μ</span><input id="tire-mu" type="number" min="0" step="any" value="1"></label>
             </div>
             <p class="hint" id="acceleration-magnitude"></p>
+            <div id="grip-settings" hidden>
+              <h3>Horizontal acceleration</h3>
+              <canvas id="grip-plot" tabindex="0" aria-label="Grip circle acceleration picker. Use the arrow keys to move the point. Home resets it."></canvas>
+              <p class="hint" id="grip-summary" aria-live="polite"></p>
+              <p class="hint">Drag to set lateral ay and longitudinal ax, then apply the preset.</p>
+            </div>
           </div>
           <div class="section-heading separated">
             <h3>External loads</h3>
@@ -202,7 +210,7 @@
             <label>Rise time (s)<input type="number" id="rise-time" value="1" min="0" step="any"></label>
             <button type="button" id="generate-history" class="primary">Generate ramp</button>
           </div>
-          <p class="hint" id="history-source">Uses the mass and acceleration settings from the CG acceleration preset.</p>
+          <p class="hint" id="history-source">Uses the acceleration, tire grip and downforce settings from Load cases.</p>
           <div id="history-results" hidden>
             <div class="history-controls">
               <label>Plot member<select id="history-member"></select></label>

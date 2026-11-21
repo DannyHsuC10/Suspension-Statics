@@ -39,6 +39,7 @@
           <li><a href="#equilibrium">Equilibrium equations</a></li>
           <li><a href="#solver">Matrix and solver checks</a></li>
           <li><a href="#loads">Load cases and contact forces</a></li>
+          <li><a href="#grip-circle">Grip circle</a></li>
           <li><a href="#sections">Sections and elastic response</a></li>
           <li><a href="#interference">Rod interference</a></li>
           <li><a href="#history">Force history</a></li>
@@ -142,22 +143,56 @@
               B_0\mathbf s=\begin{bmatrix}1\\0\\0\end{bmatrix}.
             \]
           </div>
-          <p>Each wheel’s longitudinal force uses its nominal share. Its lateral force is proportional to the wheel’s solved normal load, using the signed lateral acceleration in units of \(g_0\). The reference value \(g_0\) also applies with gravity disabled.</p>
+          <p>The acceleration \(a_y\) sets lateral demand \(ma_y\). The independent tire coefficient \(\mu\) is dimensionless, must be nonnegative, and defaults to 1. The preset checks whether the tires can supply the requested lateral force with the available normal load.</p>
           <div class="method-equation">
             \[
-              \mu_y=\frac{a_y}{g_0},\qquad
-              F_{x,i}=s_i ma_x,\qquad F_{y,i}=\mu_y F_{z,i}.
+              W=\sum_i F_{z,i},\qquad |ma_y|\le\mu W.
             \]
           </div>
-          <p>The preset applies the smallest Euclidean correction to \(W\mathbf s\) that satisfies vertical force balance and roll and pitch moment balance about the CG. In the roll equation, the lateral force contributes \(-z_i F_{y,i}\). In the pitch equation, the longitudinal force contributes \(z_i F_{x,i}\).</p>
+          <p>In the CG acceleration preset, for \(W>0\) and feasible demand, the signed ratio \(k_y=ma_y/W\) distributes \(ma_y\) in proportion to the solved normal loads. Longitudinal force keeps its nominal share. This preset checks the lateral component alone.</p>
           <div class="method-equation">
             \[
-              (B_\mu)_{:,i}=\begin{bmatrix}1\\y_i-\mu_y z_i\\-x_i\end{bmatrix},
-              \qquad B_\mu\mathbf F_z=\begin{bmatrix}W\\0\\-\sum_i z_i F_{x,i}\end{bmatrix}.
+              F_{x,i}=s_i ma_x,\qquad
+              F_{y,i}=k_y F_{z,i},\qquad
+              \sum_i F_{y,i}=ma_y.
             \]
           </div>
-          <p>Total lateral tire force is \(\sum_i F_{y,i}=\mu_y W\), which equals \(ma_y\) when \(W=mg_0\). Downforce, vertical acceleration, or disabling gravity can change \(W\) and leave a lateral force difference. That difference appears as chassis support force \(R_y=ma_y-\mu_y W\). Any net yaw moment about the CG also appears, with reversed sign, in the chassis support moment.</p>
-          <p>A negative vertical contact force triggers a possible wheel lift warning. The calculation uses fixed hardpoints and assumes a load distribution. Contact forces supplied directly or in a measured four-wheel CSV are used as entered. The member equilibrium still checks those forces against the suspension’s joints and members.</p>
+          <p>With \(W=0\), only zero lateral demand is feasible and the lateral ratio is set to zero. The preset applies the smallest Euclidean correction to \(W\mathbf s\) that satisfies vertical force balance and roll and pitch moment balance about the CG. Lateral force contributes \(-z_i F_{y,i}\) to roll, and longitudinal force contributes \(z_i F_{x,i}\) to pitch.</p>
+          <div class="method-equation">
+            \[
+              (B_y)_{:,i}=\begin{bmatrix}1\\y_i-k_y z_i\\-x_i\end{bmatrix},
+              \qquad B_y\mathbf F_z=\begin{bmatrix}W\\0\\-\sum_i z_i F_{x,i}\end{bmatrix}.
+            \]
+          </div>
+          <p>The preset balances the lateral inertial force through the tires. Any net yaw moment about the CG appears, with reversed sign, in the chassis support moment. A negative normal load in the estimated distribution triggers a possible wheel lift warning. Contact forces supplied directly or in a measured four-wheel CSV are used as entered.</p>
+          <p>Project JSON stores the coefficient in <code>case_settings.tire_mu</code>. Earlier files without this field use 1.</p>
+        </section>
+
+        <section id="grip-circle">
+          <h2>Grip circle</h2>
+          <p>Choose the Grip circle preset and drag the point anywhere inside the diagram, with lateral acceleration \(a_y\) on the horizontal axis and longitudinal acceleration \(a_x\) on the vertical axis. Apply the preset to use the selected loads. Both acceleration axes have the same limit \(A\) in m/s². The diagram is stretched to an ellipse on screen, while the allowed acceleration region is a disk in data coordinates.</p>
+          <div class="method-equation">
+            \[
+              A=\frac{\mu W}{m},\qquad
+              a_x^2+a_y^2\le A^2,\qquad W=m(g+a_z)+D.
+            \]
+          </div>
+          <p>When \(A=0\), the allowed point is at the origin. For \(W>0\), the preset uses signed ratios \(r_x=ma_x/W\) and \(r_y=ma_y/W\). Both force components are distributed in proportion to the solved normal load and sum to \(ma_x\) and \(ma_y\), respectively.</p>
+          <div class="method-equation">
+            \[
+              F_{x,i}=r_x F_{z,i},\qquad F_{y,i}=r_y F_{z,i},\qquad
+              \sqrt{F_{x,i}^2+F_{y,i}^2}\le\mu F_{z,i}.
+            \]
+          </div>
+          <p>The roll and pitch moments now both depend on the same solved normal loads. The preset corrects the initial distribution \(W\mathbf s\) to satisfy</p>
+          <div class="method-equation">
+            \[
+              (B_{\mathrm{grip}})_{:,i}=
+              \begin{bmatrix}1\\y_i-r_yz_i\\r_xz_i-x_i\end{bmatrix},\qquad
+              B_{\mathrm{grip}}\mathbf F_z=\begin{bmatrix}W\\0\\0\end{bmatrix}.
+            \]
+          </div>
+          <p>The disk checks the combined tire force allowance. The solver also checks normal loads and whether the suspension can balance the resulting loads at the original hardpoints.</p>
         </section>
 
         <section id="sections">
@@ -208,8 +243,8 @@
 
         <section id="history">
           <h2>Force history</h2>
-          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Enabled gravity and CG downforce are constant across the ramp. Changing the duration changes the time scale and acceleration slope, while each sample applies the acceleration preset at the same hardpoints.</p>
-          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. Otherwise longitudinal and lateral acceleration channels estimate contact forces with the acceleration load distribution, using the selected mass and gravity setting. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
+          <p>An acceleration ramp uses 101 equally spaced samples from zero acceleration to the selected acceleration. At time \(t\) in a ramp of duration \(T\), \(\mathbf a(t)=(t/T)\mathbf a_\mathrm{target}\). Each sample uses the selected mode, CG acceleration or Grip circle, with the same hardpoints, tire coefficient, gravity setting, and enabled CG downforce. Changing the duration changes the time scale and acceleration slope.</p>
+          <p>A lap CSV uses strictly increasing <code>time_s</code> and at least two rows. A complete set of four-wheel XYZ force channels is used directly. An acceleration-only CSV uses the selected mode and the current mass, gravity, tire coefficient, and enabled downforce. An omitted vertical acceleration is treated as zero for that estimate. An incompatible frame is reported with its timestamp.</p>
           <p>The signed peak is the sample with the largest absolute force and retains its sign. The two means are time-weighted and use piecewise-linear interpolation, including exact integration of the two triangles when the force crosses zero inside an interval.</p>
           <div class="method-equation">
             \[

@@ -5,15 +5,18 @@ export const CHASSIS = 'CHASSIS';
 export const STATIC = 'static';
 export const ACCEL = 'acceleration';
 export const BUMP = 'bump';
-export const CASES = [STATIC, ACCEL, BUMP];
+export const GRIP = 'grip-circle';
+export const CASES = [STATIC, ACCEL, BUMP, GRIP];
 export const MASS_KG = 321;
 export const GRAVITY = 9.81;
+export const DEFAULT_TIRE_MU = 1.0;
 export const DEFAULT_ACCELERATION = [0.65 * GRAVITY, 0, 0];
 export const DEFAULT_RISE_S = 1;
 export const DEFAULT_SECTION = { outer_mm: 19, inner_mm: 15, young_gpa: 205 };
 
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const PROJECT_COLUMN = 'jacobian_project';
+const WHEEL_LIFT = 'The example distribution gives negative normal load at one or more tires. Adjust the CG or acceleration, or enter wheel loads directly.';
 const ALIASES = {
   UFI: 'UCA_F', URI: 'UCA_R', LFI: 'LCA_F', LRI: 'LCA_R', WHEEL_CENTER: 'WC',
   ROD_IN: 'RACK', ROD_OUT: 'TOE', TIE_IN: 'RACK', TIE_OUT: 'TOE',
@@ -746,6 +749,33 @@ function downforceSetting(settings) {
   return downforce;
 }
 
+export function tireMuCoefficient(value = DEFAULT_TIRE_MU) {
+  const coefficient = number(value, 'Tire grip coefficient μ');
+  if (coefficient < 0) throw new Error('Tire grip coefficient μ must be zero or greater.');
+  return coefficient;
+}
+
+function presetParameters(settings, accelerating) {
+  const mass = number(settings.massKg ?? settings.mass_kg ?? MASS_KG, 'Vehicle mass');
+  if (mass <= 0) throw new Error('Vehicle mass must be positive.');
+  const gravity = !accelerating || (settings.includeGravity ?? settings.include_gravity ?? true) ? GRAVITY : 0;
+  const acceleration = accelerating ? vector(accelerationSetting(settings), 'Acceleration') : [0, 0, 0];
+  const downforce = accelerating ? downforceSetting(settings) : 0;
+  const tireMu = accelerating ? tireMuCoefficient(settings.tireMu ?? settings.tire_mu) : DEFAULT_TIRE_MU;
+  const apparentWeight = mass * gravity + mass * acceleration[2] + downforce;
+  if (!Number.isFinite(apparentWeight)) throw new Error('Mass, acceleration or downforce exceeds the numerical range.');
+  if (apparentWeight < 0) throw new Error(WHEEL_LIFT);
+  return { mass, acceleration, tireMu, apparentWeight };
+}
+
+export function gripAccelerationLimit(settings = {}) {
+  const { mass, tireMu, apparentWeight } = presetParameters(settings, true);
+  if (tireMu === 0 || apparentWeight === 0) return 0;
+  const limit = tireMu * (apparentWeight / mass);
+  if (!Number.isFinite(limit)) throw new Error('The friction-circle acceleration limit exceeds the numerical range.');
+  return limit;
+}
+
 export function exampleLoads(model, caseName, settings = {}) {
   if (!CASES.includes(caseName)) throw new Error('Choose a valid example load case.');
   if (caseName === BUMP) {
@@ -759,16 +789,27 @@ export function exampleLoads(model, caseName, settings = {}) {
   }
   const relative = contacts.map((point) => subtract(model.points[point], model.points[model.cg]));
   const geometryBalance = [[1, 1, 1, 1], relative.map((point) => point[1]), relative.map((point) => -point[0])];
-  const mass = number(settings.massKg ?? settings.mass_kg ?? MASS_KG, 'Vehicle mass');
-  if (mass <= 0) throw new Error('Vehicle mass must be positive.');
-  const gravity = caseName !== ACCEL || (settings.includeGravity ?? settings.include_gravity ?? true) ? GRAVITY : 0;
-  const acceleration = caseName === ACCEL ? vector(accelerationSetting(settings), 'Acceleration') : [0, 0, 0];
-  const downforce = caseName === ACCEL ? downforceSetting(settings) : 0;
+  const combined = caseName === GRIP;
+  const { mass, acceleration, tireMu, apparentWeight } = presetParameters(settings, caseName === ACCEL || combined);
   const inertial = scale(acceleration, -mass);
-  const apparentWeight = mass * gravity - inertial[2] + downforce;
-  if (!Number.isFinite(apparentWeight) || !inertial.every(Number.isFinite)) {
-    throw new Error('Mass, acceleration or downforce exceeds the numerical range.');
+  if (!inertial.every(Number.isFinite)) throw new Error('Mass or acceleration exceeds the numerical range.');
+
+  const longitudinalDemand = -inertial[0];
+  const lateralDemand = -inertial[1];
+  const longitudinalRatio = combined && apparentWeight > 0 ? longitudinalDemand / apparentWeight : 0;
+  const lateralRatio = apparentWeight > 0 ? lateralDemand / apparentWeight : 0;
+  const requiredForce = combined ? Math.hypot(longitudinalDemand, lateralDemand) : Math.abs(lateralDemand);
+  // Compare ratios so μ × normal load cannot overflow the grip test.
+  const requiredRatio = Math.hypot(longitudinalRatio, lateralRatio);
+  const tolerance = 1e-12 * Math.max(requiredRatio, tireMu);
+  if ((apparentWeight === 0 && requiredForce > 0) || !Number.isFinite(requiredRatio)
+      || requiredRatio - tireMu > tolerance) {
+    const kind = combined ? 'combined' : 'lateral';
+    const need = Number(requiredForce.toPrecision(6));
+    const available = Number((tireMu * apparentWeight).toPrecision(6));
+    throw new Error(`Insufficient ${kind} grip: ${need} N required, but μ × normal load provides ${available} N.`);
   }
+
   const frontX = (relative[0][0] + relative[1][0]) / 2;
   const rearX = (relative[2][0] + relative[3][0]) / 2;
   if (Math.abs(frontX - rearX) < 1e-6) throw new Error('Front and rear axles need different X positions.');
@@ -778,26 +819,30 @@ export function exampleLoads(model, caseName, settings = {}) {
   if (geometryDistribution.rank < 3) throw new Error('The tire contacts do not span a usable area in the XY plane.');
   const correction = geometryDistribution.compute(subtract([1, 0, 0], geometryBalance.map((row) => dot(row, nominal))));
   const shares = nominal.map((value, index) => value + correction[index]);
-  const longitudinal = scale(shares, -inertial[0]);
-  const lateralRatio = acceleration[1] / GRAVITY;
-  // Fy = lateralRatio * Fz makes each tire's roll lever arm y − lateralRatio * z.
-  const verticalBalance = lateralRatio === 0 ? geometryBalance
-    : [geometryBalance[0], relative.map((point) => point[1] - lateralRatio * point[2]), geometryBalance[2]];
-  const verticalDistribution = lateralRatio === 0 ? geometryDistribution : leastSquares(verticalBalance, 4);
+  const longitudinal = scale(shares, longitudinalDemand);
+  const coupled = longitudinalRatio !== 0 || lateralRatio !== 0;
+  // Components proportional to Fz contribute to the roll and pitch lever arms.
+  const verticalBalance = coupled ? [
+    geometryBalance[0],
+    relative.map(([, y, z]) => y - lateralRatio * z),
+    relative.map(([x, , z]) => longitudinalRatio * z - x),
+  ] : geometryBalance;
+  const verticalDistribution = coupled ? leastSquares(verticalBalance, 4) : geometryDistribution;
   if (verticalDistribution.rank < 3) {
-    throw new Error('The effective tire contact positions cannot resolve roll and pitch balance at this lateral acceleration.');
+    throw new Error('The effective tire contact positions cannot resolve roll and pitch balance at this acceleration.');
   }
-  const pitchMoment = dot(relative.map((point) => point[2]), longitudinal);
+  const pitchMoment = combined ? 0 : dot(relative.map((point) => point[2]), longitudinal);
   const initial = scale(shares, apparentWeight);
   const target = [apparentWeight, 0, -pitchMoment];
   const increment = verticalDistribution.compute(subtract(target, verticalBalance.map((row) => dot(row, initial))));
   const reactions = initial.map((value, index) => {
     const normal = value + increment[index];
-    return [longitudinal[index], lateralRatio * normal, normal];
+    const fx = combined ? longitudinalRatio * normal : longitudinal[index];
+    return [fx, lateralRatio * normal, normal];
   });
   if (reactions.some((reaction) => !reaction.every(Number.isFinite))) throw new Error('Tire loads exceed the numerical range.');
   if (reactions.some((reaction) => reaction[2] < -1e-6)) {
-    throw new Error('The example distribution gives negative normal load at one or more tires. Adjust the CG or acceleration, or enter wheel loads directly.');
+    throw new Error(WHEEL_LIFT);
   }
   return [
     { target: model.cg, xyz: [inertial[0], inertial[1], -apparentWeight], end: '' },
@@ -810,9 +855,10 @@ function timeError(time, error) {
 }
 
 function accelerationFrames(model, times, accelerations, settings) {
+  const caseName = settings.caseName === GRIP ? GRIP : ACCEL;
   return accelerations.map((accelerationMps2, index) => {
     try {
-      return exampleLoads(model, ACCEL, { ...settings, accelerationMps2 });
+      return exampleLoads(model, caseName, { ...settings, accelerationMps2 });
     } catch (error) {
       throw timeError(times[index], error);
     }
@@ -850,7 +896,8 @@ export function accelerationHistory(model, duration, settings = {}) {
   const timeS = scale(ratios, duration);
   const accelerationMps2 = ratios.map((ratio) => scale(target, ratio));
   const loads = accelerationFrames(model, timeS, accelerationMps2, settings);
-  return solveHistory(model, timeS, loads, accelerationMps2, 'Acceleration rise');
+  const source = settings.caseName === GRIP ? 'Friction-circle acceleration rise' : 'Acceleration rise';
+  return solveHistory(model, timeS, loads, accelerationMps2, source);
 }
 
 function readLapCsv(text) {
@@ -899,8 +946,8 @@ export function lapHistory(model, csvText, settings = {}) {
     })));
     source = 'CSV wheel contact loads';
   } else {
-    loads = accelerationFrames(model, timeS, accelerationMps2, { ...settings, downforceEnabled: false });
-    source = 'CSV acceleration-derived wheel loads';
+    loads = accelerationFrames(model, timeS, accelerationMps2, settings);
+    source = settings.caseName === GRIP ? 'CSV friction-circle wheel loads' : 'CSV acceleration-derived wheel loads';
   }
   if (settings.fileName) source = `${settings.fileName} · ${source}`;
   return solveHistory(model, timeS, loads, accelerationMps2, source);

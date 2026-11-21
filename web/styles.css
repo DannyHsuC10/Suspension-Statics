@@ -123,6 +123,8 @@ label > input:not([type=checkbox]), label > select { width: 100%; }
 .acceleration-options { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .compact-number { display: flex; align-items: center; gap: .35rem; }
 .compact-number > input { max-width: 5.5rem; }
+#grip-settings { display: grid; gap: .45rem; }
+#grip-plot { display: block; width: 100%; height: 200px; border-radius: 7px; touch-action: none; cursor: crosshair; }
 .total-load { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
 .table-scroll { min-width: 0; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }

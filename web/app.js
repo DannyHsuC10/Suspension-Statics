@@ -1,12 +1,13 @@
 import {
-  accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv, GRAVITY,
-  historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, sectionProperties, solve,
+  accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv, GRIP,
+  gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader,
+  sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
 import {
   formatHistoryCsv, formatLoadsCsv, formatProject, formatResultsCsv, parseImportedProject, parseLoadsCsv,
   validateLoads,
 } from "./data.js";
-import { drawSection, HistoryPlot, Viewport } from "./views.js";
+import { drawSection, GripPlot, HistoryPlot, Viewport } from "./views.js";
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -32,11 +33,17 @@ const state = {
 
 const presetHints = {
   static: "321 kg vehicle weight and four vertical tire reactions.",
-  acceleration: "+X forward, +Y left, +Z up. Apply the preset after changing its settings.",
+  acceleration: "Set lateral acceleration and tire grip independently. +X forward, +Y left, +Z up.",
+  [GRIP]: "Choose combined longitudinal and lateral acceleration within the tire grip limit.",
   bump: "An independent +1,800 N vertical load at the first available tire contact.",
 };
 const views = new Viewport($("geometry-view"), selectGeometry);
 const plot = new HistoryPlot($("history-plot"), index => seek(index, true));
+const gripPlot = new GripPlot($("grip-plot"), (ax, ay) => {
+  $("ax").value = ax;
+  $("ay").value = ay;
+  renderPreset();
+});
 
 function display(value, digits = 5) {
   if (!Number.isFinite(value)) return "—";
@@ -113,16 +120,18 @@ function metric(label, value) {
   return box;
 }
 
-function readSettings() {
+function readSettings(accelerationMps2 = ["ax", "ay", "az"].map(axis => numeric($(axis), axis))) {
   const massKg = numeric($("mass"), "Mass");
   if (massKg <= 0) throw new Error("Mass must be greater than zero.");
   const downforceN = $("enable-downforce").checked ? numeric($("downforce"), "Downforce") : null;
   if (downforceN !== null && downforceN < 0) throw new Error("Downforce must be zero or positive.");
   return {
     massKg,
-    accelerationMps2: ["ax", "ay", "az"].map(axis => numeric($(axis), axis)),
+    accelerationMps2,
     includeGravity: $("gravity").checked,
     downforceN,
+    tireMu: tireMuCoefficient($("tire-mu").value),
+    caseName: $("preset").value,
   };
 }
 
@@ -134,13 +143,28 @@ function readRise() {
 
 function renderPreset() {
   const preset = $("preset").value;
-  $("acceleration-settings").hidden = preset !== "acceleration";
+  $("acceleration-settings").hidden = preset !== "acceleration" && preset !== GRIP;
+  $("grip-settings").hidden = preset !== GRIP;
   $("preset-hint").textContent = presetHints[preset];
   $("downforce").disabled = !$("enable-downforce").checked;
   const acceleration = ["ax", "ay", "az"].map(axis => $(axis).valueAsNumber);
   const magnitude = display(Math.hypot(...acceleration));
-  const lateralCoefficient = display(acceleration[1] / GRAVITY);
-  $("acceleration-magnitude").textContent = `Input acceleration magnitude ${magnitude} m/s² · Lateral coefficient μ = ${lateralCoefficient}`;
+  $("acceleration-magnitude").textContent = `Input acceleration magnitude ${magnitude} m/s²`;
+  if (preset === GRIP) renderGrip(acceleration);
+}
+
+function renderGrip([ax, ay, az]) {
+  try {
+    const limit = gripAccelerationLimit(readSettings([0, 0, az]));
+    const horizontal = Math.hypot(ax, ay);
+    const limitText = `Horizontal acceleration limit ${display(limit)} m/s².`;
+    const outside = horizontal > limit + 1e-12 * limit;
+    $("grip-summary").textContent = outside ? `${limitText} The current inputs exceed the limit.` : limitText;
+    gripPlot.setData({ limit, ax: Number.isFinite(ax) ? ax : 0, ay: Number.isFinite(ay) ? ay : 0 });
+  } catch (error) {
+    $("grip-summary").textContent = error.message;
+    gripPlot.setData({ limit: NaN, ax: 0, ay: 0 });
+  }
 }
 
 function install(model, source, { topology = null, loads = [], sections = {}, resetView = true } = {}) {
@@ -551,7 +575,7 @@ function installHistory(history) {
 function renderHistory() {
   const { history, frame } = state;
   $("history-results").hidden = !history;
-  $("history-source").textContent = history?.source ?? "Uses the mass and acceleration settings from the CG acceleration preset.";
+  $("history-source").textContent = history?.source ?? "Uses the acceleration, tire grip and downforce settings from Load cases.";
   if (!history) {
     plot.setData(null, 0, "", false);
     return;
@@ -708,6 +732,7 @@ function loadImportedProject(saved, name) {
   $("gravity").checked = saved.settings.includeGravity;
   $("enable-downforce").checked = saved.settings.downforceN != null;
   $("downforce").value = saved.settings.downforceN ?? 0;
+  $("tire-mu").value = saved.settings.tireMu;
   $("rise-time").value = saved.riseTime;
   renderPreset();
   switchTab("loads");
@@ -753,6 +778,9 @@ function importData(text, name) {
     installHistory(lapHistory(state.model, text, {
       massKg: $("mass").value,
       includeGravity: $("gravity").checked,
+      tireMu: $("tire-mu").value,
+      downforceN: $("enable-downforce").checked ? $("downforce").value : null,
+      caseName: $("preset").value,
       fileName: name,
     }));
   } else if (["target", "end", "x", "y", "z"].every((column) => columns.has(column))) {
@@ -787,10 +815,12 @@ for (const button of document.querySelectorAll("[data-view]")) {
   });
 }
 for (const id of ["view-labels", "view-loads"]) $(id).addEventListener("change", renderViewport);
-for (const id of ["preset", "enable-downforce", "ax", "ay", "az"]) $(id).addEventListener("input", renderPreset);
+for (const id of ["preset", "enable-downforce", "downforce", "mass", "gravity", "ax", "ay", "az", "tire-mu"]) {
+  $(id).addEventListener("input", renderPreset);
+}
 $("apply-preset").addEventListener("click", () => perform(() => {
   const name = $("preset").value;
-  const loads = exampleLoads(state.model, name, name === "acceleration" ? readSettings() : {});
+  const loads = exampleLoads(state.model, name, name === "acceleration" || name === GRIP ? readSettings() : {});
   setLoads(loads, "Preset applied. Solve to update the axial member results.");
 }));
 $("solve").addEventListener("click", () => solveCurrent());

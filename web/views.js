@@ -68,6 +68,106 @@ function circle(context, x, y, radius, fill, stroke = null, width = 1) {
   }
 }
 
+export class GripPlot {
+  constructor(canvas, onSelect) {
+    this.canvas = canvas;
+    this.context = canvas.getContext("2d");
+    this.onSelect = onSelect;
+    this.data = { limit: 0, ax: 0, ay: 0 };
+    this.box = null;
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      canvas.focus({ preventScroll: true });
+      canvas.setPointerCapture(event.pointerId);
+      this.pick(event);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (canvas.hasPointerCapture(event.pointerId)) this.pick(event);
+    });
+    canvas.addEventListener("keydown", (event) => {
+      const directions = { ArrowUp: [.05, 0], ArrowDown: [-.05, 0], ArrowLeft: [0, -.05], ArrowRight: [0, .05] };
+      if (event.key === "Home") {
+        event.preventDefault();
+        this.select(0, 0);
+      } else if (Object.hasOwn(directions, event.key) && this.data.limit > 0) {
+        event.preventDefault();
+        const [dx, dy] = directions[event.key];
+        const [ax, ay] = this.normalizedPoint();
+        this.select(ax + dx, ay + dy);
+      }
+    });
+    new ResizeObserver(() => this.draw()).observe(canvas);
+  }
+
+  setData(data) {
+    this.data = data;
+    this.draw();
+  }
+
+  select(axRatio, ayRatio) {
+    const { limit } = this.data;
+    if (!Number.isFinite(limit) || limit < 0) return;
+    const scale = Math.max(1, Math.hypot(axRatio, ayRatio));
+    this.onSelect(limit * (axRatio / scale), limit * (ayRatio / scale));
+  }
+
+  normalizedPoint() {
+    const { limit, ax, ay } = this.data;
+    if (!(limit > 0)) return [0, 0];
+    const scale = Math.max(limit, Math.abs(ax), Math.abs(ay));
+    const x = ax / scale;
+    const y = ay / scale;
+    const radius = Math.max(limit / scale, Math.hypot(x, y));
+    return [x / radius, y / radius];
+  }
+
+  pick(event) {
+    if (!this.box) return;
+    const { left, top } = this.canvas.getBoundingClientRect();
+    const { cx, cy, rx, ry } = this.box;
+    this.select((cy - (event.clientY - top)) / ry, (event.clientX - left - cx) / rx);
+  }
+
+  draw() {
+    const context = this.context;
+    const size = fitCanvas(this.canvas, context);
+    if (!size) return;
+    const { width, height } = size;
+    fillBackground(context, width, height);
+    const cx = width / 2;
+    const cy = height / 2;
+    const rx = Math.max(1, cx - 56);
+    const ry = Math.max(1, cy - 31);
+    this.box = { cx, cy, rx, ry };
+    const { limit } = this.data;
+    if (limit > 0) {
+      context.beginPath();
+      context.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+      context.fillStyle = "#1b374a";
+      context.fill();
+      context.lineWidth = 1.8;
+      context.strokeStyle = "#68c6c3";
+      context.stroke();
+      context.beginPath();
+      context.ellipse(cx, cy, rx / 2, ry / 2, 0, 0, 2 * Math.PI);
+      context.lineWidth = 1;
+      context.strokeStyle = "#416579";
+      context.setLineDash([3, 3]);
+      context.stroke();
+      context.setLineDash([]);
+    }
+    line(context, [[cx-rx-9, cy], [cx+rx+9, cy]], MUTED);
+    line(context, [[cx, cy+ry+8], [cx, cy-ry-8]], MUTED);
+    for (const [x, y, name] of [[cx+rx+27, cy, "+ay"], [cx-rx-27, cy, "−ay"],
+      [cx, cy-ry-19, "+ax"], [cx, cy+ry+18, "−ax"]]) {
+      label(context, name, x, y, { align: "center", size: 12 });
+    }
+    if (!Number.isFinite(limit)) return;
+    const [nx, ny] = this.normalizedPoint();
+    circle(context, cx + rx * ny, cy - ry * nx, 6.5, "#f5cf77", BACKGROUND, 2);
+  }
+}
+
 function label(context, content, x, y, {
   color = TEXT, size = 13, align = "left", baseline = "middle", weight = 400, family = FONT,
 } = {}) {
