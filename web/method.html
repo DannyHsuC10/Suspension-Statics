@@ -121,7 +121,7 @@
 
         <section id="loads">
           <h2>Load cases and contact forces</h2>
-          <p>Direct input applies an XYZ force at a hardpoint or a pure couple to a rigid body. Multiple load entries add linearly. The static preset uses 321 kg and gravity. The acceleration preset combines weight, optional downforce \(D\) at the CG, and the equivalent inertia force for acceleration \(\mathbf a=(a_x,a_y,a_z)\).</p>
+          <p>Direct input applies an XYZ force at a hardpoint or a pure couple to a rigid body. Multiple load entries add linearly. The CG acceleration preset combines weight, optional downforce \(D\) at the CG, and the equivalent inertia force for acceleration \(\mathbf a=(a_x,a_y,a_z)\).</p>
           <div class="method-equation">
             \[
               \mathbf F_{\mathrm{inertial}}=-m\mathbf a,\qquad
@@ -129,7 +129,7 @@
               \mathbf F_{\mathrm{CG}}=(-ma_x,\,-ma_y,\,-W).
             \]
           </div>
-          <p>Use \(g=g_0\) when gravity is enabled and \(g=0\) otherwise, with fixed reference \(g_0=9.81\,\mathrm{m/s^2}\). The static preset uses \(\mathbf a=\mathbf 0\) and \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
+          <p>Use \(g=g_0\) when gravity is enabled and \(g=0\) otherwise, with fixed reference \(g_0=9.81\,\mathrm{m/s^2}\). For a gravity-only static case, select CG acceleration, use \(\mathbf a=\mathbf 0\), leave gravity enabled, and set \(D=0\). The single-wheel bump preset applies a standalone +1800 N vertical contact force at the first available wheel.</p>
 
           <h3>Estimated four-wheel shares</h3>
           <p>With contact positions \(\mathbf p_i=(x_i,y_i,z_i)\) relative to the CG, the preset starts with front axle share \(s_f=-\bar x_r/(\bar x_f-\bar x_r)\), where \(\bar x_f\) and \(\bar x_r\) are the front and rear axle mean X coordinates. It divides each axle share equally between its two wheels, then makes the smallest Euclidean correction to satisfy the unit-load force, roll, and pitch balances. For wheel order FL, FR, RL, RR, the nominal balance matrix \(B_0\) and corrected shares \(\mathbf s\) satisfy</p>

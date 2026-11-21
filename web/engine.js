@@ -6,11 +6,11 @@ export const STATIC = 'static';
 export const ACCEL = 'acceleration';
 export const BUMP = 'bump';
 export const GRIP = 'grip-circle';
-export const CASES = [STATIC, ACCEL, BUMP, GRIP];
+export const CASES = [ACCEL, GRIP, BUMP];
 export const MASS_KG = 321;
 export const GRAVITY = 9.81;
 export const DEFAULT_TIRE_MU = 1.0;
-export const DEFAULT_ACCELERATION = [0.65 * GRAVITY, 0, 0];
+export const DEFAULT_ACCELERATION = [0, 0, 0];
 export const DEFAULT_RISE_S = 1;
 export const DEFAULT_SECTION = { outer_mm: 19, inner_mm: 15, young_gpa: 205 };
 
@@ -777,7 +777,7 @@ export function gripAccelerationLimit(settings = {}) {
 }
 
 export function exampleLoads(model, caseName, settings = {}) {
-  if (!CASES.includes(caseName)) throw new Error('Choose a valid example load case.');
+  if (caseName !== STATIC && !CASES.includes(caseName)) throw new Error('Choose a valid example load case.');
   if (caseName === BUMP) {
     if (!model.wheels.length) throw new Error('The single-wheel bump needs at least one wheel center (WC).');
     return [{ target: model.wheels[0].contact, xyz: [0, 0, 1800], end: '' }];

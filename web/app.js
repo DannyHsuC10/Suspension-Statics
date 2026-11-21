@@ -1,5 +1,6 @@
 import {
-  accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv, GRIP,
+  ACCEL, accelerationHistory, buildModel, DEFAULT_ACCELERATION, DEFAULT_SECTION, DEFAULT_TIRE_MU,
+  exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
   gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader,
   sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
@@ -32,7 +33,6 @@ const state = {
 };
 
 const presetHints = {
-  static: "321 kg vehicle weight and four vertical tire reactions.",
   acceleration: "Set lateral acceleration and tire grip independently. +X forward, +Y left, +Z up.",
   [GRIP]: "Choose combined longitudinal and lateral acceleration within the tire grip limit.",
   bump: "An independent +1,800 N vertical load at the first available tire contact.",
@@ -216,11 +216,17 @@ async function loadExample(name) {
   if (!response.ok) throw new Error("Could not load the example geometry.");
   const { points, memberMounts } = parseHardpointCsv(await response.text());
   const model = buildModel(points, null, memberMounts);
-  const loads = exampleLoads(model, "static");
+  const loads = exampleLoads(model, ACCEL);
   if (revision !== state.revision) return;
   const title = name === "hardpoints.csv" ? "Four-wheel example with dampers" : "Four-wheel example";
   install(model, title, { loads });
-  $("preset").value = "static";
+  $("preset").value = ACCEL;
+  $("mass").value = MASS_KG;
+  for (const [index, axis] of ["ax", "ay", "az"].entries()) $(axis).value = DEFAULT_ACCELERATION[index];
+  $("tire-mu").value = DEFAULT_TIRE_MU;
+  $("gravity").checked = true;
+  $("enable-downforce").checked = false;
+  $("downforce").value = 0;
   renderPreset();
   switchTab("loads");
   solveCurrent(false);
@@ -820,7 +826,7 @@ for (const id of ["preset", "enable-downforce", "downforce", "mass", "gravity", 
 }
 $("apply-preset").addEventListener("click", () => perform(() => {
   const name = $("preset").value;
-  const loads = exampleLoads(state.model, name, name === "acceleration" || name === GRIP ? readSettings() : {});
+  const loads = exampleLoads(state.model, name, name === ACCEL || name === GRIP ? readSettings() : {});
   setLoads(loads, "Preset applied. Solve to update the axial member results.");
 }));
 $("solve").addEventListener("click", () => solveCurrent());

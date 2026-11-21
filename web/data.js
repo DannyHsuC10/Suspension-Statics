@@ -8,12 +8,12 @@ import {
 const FORMAT = 'SuspensionStaticsLab';
 const VERSION = 1;
 const CASE_LABELS = new Map([
-  [STATIC, '靜態負載'], [ACCEL, '重心加速'], [BUMP, '單輪受衝擊'], [GRIP, '摩擦圓工況'],
+  [ACCEL, '重心加速'], [BUMP, '單輪受衝擊'], [GRIP, '摩擦圓工況'],
 ]);
+const LEGACY_STATIC_CASES = new Set([STATIC, '靜態負載', '空力下壓']);
 const CASE_IDS = new Map([
   ...Array.from(CASE_LABELS, ([id, label]) => [label, id]),
   ...Array.from(CASE_LABELS.keys(), (id) => [id, id]),
-  ['空力下壓', STATIC],
 ]);
 const LOAD_COLUMNS = ['target', 'end', 'x', 'y', 'z'];
 const AXES = ['x', 'y', 'z'];
@@ -123,11 +123,12 @@ function nativeProject(data) {
   const model = buildModel(points, topology, mounts);
   const sections = validateSections(model, data.sections);
   const loads = validateLoads(model, data.loads);
-  const caseName = CASE_IDS.get(raw?.case);
+  const legacyStatic = LEGACY_STATIC_CASES.has(raw?.case);
+  const caseName = legacyStatic ? ACCEL : CASE_IDS.get(raw?.case);
   if (!isRecord(raw) || !caseName) throw new Error('The project has an invalid load case.');
   const configuration = validateSettings({
     massKg: raw.mass_kg,
-    accelerationMps2: raw.acceleration_mps2,
+    accelerationMps2: legacyStatic ? DEFAULT_ACCELERATION : raw.acceleration_mps2,
     includeGravity: raw.include_gravity,
     downforceN: raw.downforce_n,
     tireMu: raw.tire_mu,
@@ -207,7 +208,7 @@ function kinematicsProject(data) {
     topology: null,
     loads: [],
     sections: Object.fromEntries(model.rods.map(({ name }) => [name, { ...DEFAULT_SECTION }])),
-    caseName: STATIC,
+    caseName: ACCEL,
     settings: {
       massKg: MASS_KG, accelerationMps2: [...DEFAULT_ACCELERATION], includeGravity: true, downforceN: null,
       tireMu: DEFAULT_TIRE_MU,

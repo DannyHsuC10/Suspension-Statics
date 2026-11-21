@@ -96,7 +96,6 @@
           <div class="inline-form">
             <label for="preset">Preset
               <select id="preset">
-                <option value="static">Static load</option>
                 <option value="acceleration">CG acceleration</option>
                 <option value="grip-circle">Grip circle</option>
                 <option value="bump">Single-wheel bump</option>
@@ -104,11 +103,11 @@
             </label>
             <button type="button" id="apply-preset" disabled>Apply preset</button>
           </div>
-          <p class="hint" id="preset-hint">321 kg vehicle weight and four vertical tire reactions.</p>
-          <div id="acceleration-settings" class="subpanel" hidden>
+          <p class="hint" id="preset-hint">Set lateral acceleration and tire grip independently. +X forward, +Y left, +Z up.</p>
+          <div id="acceleration-settings" class="subpanel">
             <div class="input-grid four-inputs">
               <label>Mass (kg)<input id="mass" type="number" min="0" step="any" value="321"></label>
-              <label>ax (m/s²)<input id="ax" type="number" step="any" value="6.3765"></label>
+              <label>ax (m/s²)<input id="ax" type="number" step="any" value="0"></label>
               <label>ay (m/s²)<input id="ay" type="number" step="any" value="0"></label>
               <label>az (m/s²)<input id="az" type="number" step="any" value="0"></label>
             </div>
