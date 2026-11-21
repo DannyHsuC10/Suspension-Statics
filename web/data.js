@@ -1,7 +1,7 @@
 /** Portable project files and tabular exports for Suspension Statics Lab. */
 
 import {
-  ACCEL, BUMP, CORNERS, DEFAULT_RISE_S, DEFAULT_SECTION, STATIC,
+  ACCEL, BUMP, CORNERS, DEFAULT_ACCELERATION, DEFAULT_RISE_S, DEFAULT_SECTION, MASS_KG, STATIC,
   buildModel, formatCsv, parseCsv, sectionProperties,
 } from './engine.js';
 
@@ -17,6 +17,11 @@ const CASE_IDS = new Map([
 ]);
 const LOAD_COLUMNS = ['target', 'end', 'x', 'y', 'z'];
 const AXES = ['x', 'y', 'z'];
+const PUSHROD_SUFFIXES = new Map([['LCA', 'PUSH_OUT'], ['UCA', 'PUSH_OUT_UCA'], ['UPRIGHT', 'PUSH_OUT_UPRIGHT']]);
+const PUSHROD_ALIASES = new Map([
+  ...Array.from(PUSHROD_SUFFIXES.values(), (suffix) => [suffix, suffix]),
+  ['PUSH_OUT_LCA', 'PUSH_OUT'], ['PUSHROD_OUT', 'PUSH_OUT'],
+]);
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function finiteNumber(value, label) {
@@ -99,13 +104,15 @@ function validateSettings(settings, riseTime) {
   };
 }
 
-export function parseProject(text) {
-  let data;
+function readProjectJson(text) {
   try {
-    data = JSON.parse(text.replace(/^\uFEFF/, ''));
+    return JSON.parse(text.replace(/^\uFEFF/, ''));
   } catch {
     throw new Error('The project file is not valid JSON.');
   }
+}
+
+function nativeProject(data) {
   if (!isRecord(data) || data.format !== FORMAT) throw new Error('Choose a Suspension Statics Lab project JSON.');
   if (data.schema_version !== VERSION) throw new Error('This project version is not supported.');
   const { hardpoints_m: points, topology = null, member_mounts: mounts, case_settings: raw } = data;
@@ -124,6 +131,92 @@ export function parseProject(text) {
     downforceN: raw.downforce_n,
   }, Object.hasOwn(raw, 'rise_time_s') ? raw.rise_time_s : DEFAULT_RISE_S);
   return { model, topology, sections, loads, caseName, ...configuration };
+}
+
+export function parseProject(text) {
+  return nativeProject(readProjectJson(text));
+}
+
+function applyPushrodMounts(points, overrides) {
+  if (!isRecord(overrides)) throw new Error('Kinematics pushrod mounts must be an object.');
+  for (const [corner, mount] of Object.entries(overrides)) {
+    const suffix = PUSHROD_SUFFIXES.get(mount);
+    if (!CORNERS.includes(corner) || !suffix) {
+      throw new Error(`Invalid pushrod mount for ${corner}. Use UCA, LCA or UPRIGHT at FL, FR, RL or RR.`);
+    }
+    const prefix = `${corner}_`;
+    const candidates = [...points.keys()].filter((name) => {
+      const upper = name.toUpperCase();
+      return upper.startsWith(prefix) && PUSHROD_ALIASES.has(upper.slice(prefix.length));
+    });
+    if (candidates.length !== 1) throw new Error(`${corner} needs one outboard hardpoint for its pushrod mount.`);
+    const [point] = candidates;
+    if (PUSHROD_ALIASES.get(point.slice(prefix.length).toUpperCase()) !== suffix) {
+      points.set(`${prefix}${suffix}`, points.get(point));
+      points.delete(point);
+    }
+  }
+}
+
+function kinematicsProject(data) {
+  const { version = 1, points: rawPoints, pushrod_mounts: overrides = {}, deformable_members: members = [] } = data;
+  if (version !== 1) throw new Error('This Kinematics project version is not supported.');
+  if (data.mechanism != null) throw new Error('Import a Kinematics project with standard suspension geometry. Custom Kinematics mechanisms use different constraints.');
+  if (!isRecord(rawPoints) || !Object.keys(rawPoints).length || Object.keys(rawPoints).some((name) => !name.trim())) {
+    throw new Error('The Kinematics project needs named hardpoint coordinates in meters.');
+  }
+  const points = new Map(Object.entries(rawPoints).map(([name, xyz]) => [name, xyzVector(xyz, name)]));
+  applyPushrodMounts(points, overrides);
+  if (!Array.isArray(members)) throw new Error('Kinematics deformable_members must be a list.');
+
+  const names = new Set([...points.keys()].map((name) => name.toLowerCase()));
+  const mountPairs = new Map();
+  for (const member of members) {
+    if (!isRecord(member) || typeof member.name !== 'string' || !member.name.trim()) {
+      throw new Error('A deformable member needs a rod name.');
+    }
+    const name = member.name.trim();
+    const coordinates = [];
+    const mounts = [];
+    for (const end of ['A', 'B']) {
+      const point = `${name}_${end}`;
+      if (names.has(point.toLowerCase())) throw new Error(`Duplicate hardpoint ${point}.`);
+      const definition = member[end.toLowerCase()];
+      const xyz = xyzVector(definition?.xyz, point);
+      coordinates.push(xyz);
+      mounts.push(definition.mount);
+      points.set(point, xyz);
+      names.add(point.toLowerCase());
+    }
+    const [a, b] = coordinates;
+    const length = Math.hypot(...a.map((value, axis) => b[axis] - value));
+    if (!Number.isFinite(length) || length <= 1e-9) throw new Error(`${name} has coincident endpoints or coordinates outside the numerical range.`);
+    mountPairs.set(name, mounts);
+  }
+  const model = buildModel(Object.fromEntries(points), null, Object.fromEntries(mountPairs));
+  for (const [corner, mount] of Object.entries(overrides)) {
+    const pushrod = model.rods.find(({ name }) => name === `${corner}_PUSH_ROD`);
+    if (!pushrod || model.owners[pushrod.a] !== `${corner}_${mount}`) {
+      throw new Error(`${corner} needs complete ${mount} and pushrod geometry for its selected mount.`);
+    }
+  }
+  return {
+    model,
+    topology: null,
+    loads: [],
+    sections: Object.fromEntries(model.rods.map(({ name }) => [name, { ...DEFAULT_SECTION }])),
+    caseName: STATIC,
+    settings: { massKg: MASS_KG, accelerationMps2: [...DEFAULT_ACCELERATION], includeGravity: true, downforceN: null },
+    riseTime: DEFAULT_RISE_S,
+  };
+}
+
+export function parseImportedProject(input) {
+  const data = typeof input === 'string' ? readProjectJson(input) : input;
+  if (isRecord(data) && Object.hasOwn(data, 'points') && !Object.hasOwn(data, 'format')) {
+    return kinematicsProject(data);
+  }
+  return nativeProject(data);
 }
 
 export function formatProject({ model, topology = null, loads, sections, caseName, settings, riseTime }) {

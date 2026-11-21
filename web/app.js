@@ -1,9 +1,9 @@
 import {
   accelerationHistory, buildModel, DEFAULT_SECTION, exampleLoads, formatHardpointCsv,
-  historyStatistics, lapHistory, memberResults, parseHardpointCsv, sectionProperties, solve,
+  historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, sectionProperties, solve,
 } from "./engine.js";
 import {
-  formatHistoryCsv, formatLoadsCsv, formatProject, formatResultsCsv, parseLoadsCsv, parseProject,
+  formatHistoryCsv, formatLoadsCsv, formatProject, formatResultsCsv, parseImportedProject, parseLoadsCsv,
   validateLoads,
 } from "./data.js";
 import { drawSection, HistoryPlot, Viewport } from "./views.js";
@@ -211,9 +211,6 @@ function syncButtons() {
   for (const button of document.querySelectorAll("[data-export]")) {
     const available = { geometry: model, project: model, loads: model, results: Boolean(state.equilibrium), history: Boolean(state.history) };
     button.disabled = !available[button.dataset.export];
-  }
-  for (const button of document.querySelectorAll("[data-file]")) {
-    if (["topology", "loads", "lap"].includes(button.dataset.file)) button.disabled = !model;
   }
 }
 
@@ -699,53 +696,70 @@ function exportData(kind) {
   }
 }
 
-function importData(kind, text, name) {
-  switch (kind) {
-    case "geometry": {
-      const { points, memberMounts } = parseHardpointCsv(text);
-      install(buildModel(points, null, memberMounts), name);
-      switchTab("loads");
-      break;
-    }
-    case "project": {
-      const saved = parseProject(text);
-      install(saved.model, name, saved);
-      $("preset").value = saved.caseName;
-      $("mass").value = saved.settings.massKg;
-      for (const [axis, value] of saved.settings.accelerationMps2.entries()) {
-        $(`a${"xyz"[axis]}`).value = value;
-      }
-      $("gravity").checked = saved.settings.includeGravity;
-      $("enable-downforce").checked = saved.settings.downforceN != null;
-      $("downforce").value = saved.settings.downforceN ?? 0;
-      $("rise-time").value = saved.riseTime;
-      renderPreset();
-      switchTab("loads");
-      status(`Opened ${name}. The saved external loads are ready to solve.`);
-      break;
-    }
-    case "topology": {
-      const topology = JSON.parse(text.replace(/^\uFEFF/, ""));
-      if (!topology || typeof topology !== "object" || Array.isArray(topology) || topology.format === "SuspensionStaticsLab") {
-        throw new Error("Choose a custom topology JSON with fixed points, bodies and rods.");
-      }
-      install(buildModel(state.model.points, topology), name, { topology });
-      switchTab("loads");
-      break;
-    }
-    case "loads": {
-      const loads = parseLoadsCsv(text, state.model);
-      setLoads(loads, `Imported ${loads.length} external loads.`);
-      switchTab("loads");
-      break;
-    }
-    case "lap":
-      installHistory(lapHistory(state.model, text, {
-        massKg: $("mass").value,
-        includeGravity: $("gravity").checked,
-        fileName: name,
-      }));
-      break;
+function loadImportedProject(saved, name) {
+  install(saved.model, name, saved);
+  $("preset").value = saved.caseName;
+  $("mass").value = saved.settings.massKg;
+  for (const [axis, value] of saved.settings.accelerationMps2.entries()) {
+    $(`a${"xyz"[axis]}`).value = value;
+  }
+  $("gravity").checked = saved.settings.includeGravity;
+  $("enable-downforce").checked = saved.settings.downforceN != null;
+  $("downforce").value = saved.settings.downforceN ?? 0;
+  $("rise-time").value = saved.riseTime;
+  renderPreset();
+  switchTab("loads");
+  const next = saved.loads.length ? "The saved loads are ready to solve." : "Apply a preset or enter external loads.";
+  status(`Opened ${name}. ${next}`);
+}
+
+function importJson(text, name) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("The file is not valid JSON.");
+  }
+  const isTopology = data !== null && typeof data === "object" && !Array.isArray(data)
+    && !Object.hasOwn(data, "format") && !Object.hasOwn(data, "points")
+    && ["fixed", "bodies", "rods"].some((key) => Object.hasOwn(data, key));
+  if (isTopology) {
+    if (!state.model) throw new Error("Import hardpoint geometry before applying a custom topology.");
+    install(buildModel(state.model.points, data), name, { topology: data });
+    switchTab("loads");
+    return;
+  }
+  loadImportedProject(parseImportedProject(data), name);
+}
+
+function importData(text, name) {
+  const content = text.trimStart();
+  if (!content) throw new Error("The file is empty.");
+  if (/\.json$/i.test(name) || content.startsWith("{") || content.startsWith("[")) {
+    importJson(content, name);
+    return;
+  }
+
+  const columns = new Set(readCsvHeader(text));
+  const hasCoordinates = ["m", "mm"].some((unit) => ["x", "y", "z"].every((axis) => columns.has(`${axis}_${unit}`)));
+  if ((columns.has("name") || columns.has("point")) && hasCoordinates) {
+    const { points, memberMounts } = parseHardpointCsv(text);
+    install(buildModel(points, null, memberMounts), name);
+    switchTab("loads");
+  } else if (columns.has("time_s")) {
+    if (!state.model) throw new Error("Import hardpoint geometry before opening lap data.");
+    installHistory(lapHistory(state.model, text, {
+      massKg: $("mass").value,
+      includeGravity: $("gravity").checked,
+      fileName: name,
+    }));
+  } else if (["target", "end", "x", "y", "z"].every((column) => columns.has(column))) {
+    if (!state.model) throw new Error("Import hardpoint geometry before applying external loads.");
+    const loads = parseLoadsCsv(text, state.model);
+    setLoads(loads, `Imported ${loads.length} external loads.`);
+    switchTab("loads");
+  } else {
+    throw new Error("The CSV columns do not match hardpoints, external loads, or lap data.");
   }
 }
 
@@ -822,25 +836,17 @@ for (const button of document.querySelectorAll("[data-export]")) {
   });
 }
 const fileInput = $("file-input");
-for (const button of document.querySelectorAll("[data-file]")) {
-  button.addEventListener("click", () => {
-    const menu = button.closest("details");
-    if (menu) menu.open = false;
-    const kind = button.dataset.file;
-    fileInput.dataset.kind = kind;
-    fileInput.accept = ["project", "topology"].includes(kind) ? ".json,application/json" : ".csv,text/csv";
-    fileInput.value = "";
-    fileInput.click();
-  });
-}
+$("import-file").addEventListener("click", () => {
+  fileInput.value = "";
+  fileInput.click();
+});
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files[0];
   if (!file) return;
-  const kind = fileInput.dataset.kind;
   const revision = ++state.revision;
   try {
     const content = await file.text();
-    if (revision === state.revision) importData(kind, content, file.name);
+    if (revision === state.revision) importData(content, file.name);
   } catch (error) {
     if (revision === state.revision) status(`${file.name}: ${error.message}`, true);
   }

@@ -59,7 +59,7 @@ function unitVector(a, b, label) {
   return [scale(difference, 1 / length), length];
 }
 
-function csvRows(input) {
+function csvRows(input, limit = Infinity) {
   const text = input.replace(/^\uFEFF/, '');
   const rows = [];
   let fields = [];
@@ -98,6 +98,7 @@ function csvRows(input) {
       endCell();
     } else if (character === '\r' || character === '\n') {
       endRow();
+      if (rows.length === limit) return rows;
       if (character === '\r' && next === '\n') index += 1;
       line += 1;
     } else if (closed) {
@@ -115,6 +116,10 @@ function csvRows(input) {
 
 export function parseCsv(text) {
   return csvRows(text).map(({ fields }) => fields);
+}
+
+export function readCsvHeader(text) {
+  return (csvRows(text, 1)[0]?.fields ?? []).map((name) => name.trim().toLowerCase());
 }
 
 function csvTable(input) {

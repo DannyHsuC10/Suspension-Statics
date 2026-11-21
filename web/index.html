@@ -9,16 +9,15 @@
   <link rel="stylesheet" href="./styles.css">
   <script src="./app.js" type="module"></script>
 </head>
-<body>
+<body class="workbench-page">
   <a class="skip-link" href="#main">Skip to workbench</a>
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="brand" href="./index.html">
+      <div class="brand">
         <img class="brand-icon" src="./icon.svg" width="40" height="40" alt="">
         <span>Suspension Statics Lab</span>
-      </a>
+      </div>
       <nav class="site-nav" aria-label="Site navigation">
-        <a class="nav-link" href="./index.html" aria-current="page">Workbench</a>
         <a class="nav-link" href="./method.html">Calculation method</a>
       </nav>
     </div>
@@ -39,16 +38,7 @@
           </div>
         </details>
         <button type="button" id="edit-points" disabled>Edit hardpoints</button>
-        <details class="file-menu">
-          <summary>Import</summary>
-          <div class="menu-options">
-            <button type="button" data-file="geometry">Hardpoints CSV</button>
-            <button type="button" data-file="project">Project JSON</button>
-            <button type="button" data-file="topology">Custom topology JSON</button>
-            <button type="button" data-file="loads">External loads CSV</button>
-            <button type="button" data-file="lap">Lap data CSV</button>
-          </div>
-        </details>
+        <button type="button" id="import-file">Import</button>
         <details class="file-menu">
           <summary>Export</summary>
           <div class="menu-options">
@@ -59,7 +49,7 @@
             <button type="button" data-export="history">Load history CSV</button>
           </div>
         </details>
-        <input id="file-input" type="file" hidden>
+        <input id="file-input" type="file" accept=".csv,.json" hidden>
       </div>
     </section>
 
@@ -84,7 +74,7 @@
             <span>|Stress|</span><span>0</span><span class="stress-ramp" aria-hidden="true"></span><span id="stress-limit">— MPa</span>
           </div>
         </div>
-        <div class="selection-bar">
+        <div class="selection-bar" role="group" aria-label="Geometry selection and controls" tabindex="0">
           <p id="geometry-selection">Select a member or hardpoint to inspect it.</p>
           <p class="hint geometry-hint">Drag to orbit · Right-drag to pan · Scroll to zoom</p>
         </div>
@@ -98,7 +88,7 @@
           <button type="button" role="tab" aria-selected="false" aria-controls="panel-history" id="tab-history" tabindex="-1">History</button>
         </div>
 
-        <div id="panel-loads" class="analysis-body" role="tabpanel" aria-labelledby="tab-loads">
+        <div id="panel-loads" class="analysis-body" role="tabpanel" aria-labelledby="tab-loads" tabindex="0">
           <div class="section-heading">
             <h2>Load case</h2>
             <button type="button" id="solve" class="primary" disabled>Solve member forces</button>
@@ -164,7 +154,7 @@
           </div>
         </div>
 
-        <div id="panel-sections" class="analysis-body" role="tabpanel" aria-labelledby="tab-sections" hidden>
+        <div id="panel-sections" class="analysis-body" role="tabpanel" aria-labelledby="tab-sections" tabindex="0" hidden>
           <div class="section-heading"><h2>Member sections</h2></div>
           <label>Inspect member<select id="section-member"></select></label>
           <div class="section-editor">
@@ -188,7 +178,7 @@
           </div>
         </div>
 
-        <div id="panel-results" class="analysis-body" role="tabpanel" aria-labelledby="tab-results" hidden>
+        <div id="panel-results" class="analysis-body" role="tabpanel" aria-labelledby="tab-results" tabindex="0" hidden>
           <div class="section-heading">
             <h2>Member results</h2>
             <button type="button" data-export="results" disabled>Export results CSV</button>
@@ -206,12 +196,11 @@
           </div>
         </div>
 
-        <div id="panel-history" class="analysis-body" role="tabpanel" aria-labelledby="tab-history" hidden>
+        <div id="panel-history" class="analysis-body" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
           <div class="section-heading"><h2>Quasi-static load history</h2></div>
           <div class="history-actions button-row">
             <label>Rise time (s)<input type="number" id="rise-time" value="1" min="0" step="any"></label>
             <button type="button" id="generate-history" class="primary">Generate ramp</button>
-            <button type="button" data-file="lap">Import lap CSV</button>
           </div>
           <p class="hint" id="history-source">Uses the mass and acceleration settings from the CG acceleration preset.</p>
           <div id="history-results" hidden>
@@ -231,7 +220,7 @@
           </div>
           <details class="format-help">
             <summary>Lap CSV columns</summary>
-            <p>Use an increasing <code>time_s</code> and either all four wheels’ XYZ forces, such as <code>fx_FL_N</code>, or <code>ax_m_s2</code> and <code>ay_m_s2</code> with optional <code>az_m_s2</code>. Acceleration can also be supplied in <em>g</em> using <code>ax_g</code>, <code>ay_g</code>, and <code>az_g</code>.</p>
+            <p>Open lap files with the Import button. Use an increasing <code>time_s</code> and either all four wheels’ XYZ forces, such as <code>fx_FL_N</code>, or <code>ax_m_s2</code> and <code>ay_m_s2</code> with optional <code>az_m_s2</code>. Acceleration can also be supplied in <em>g</em> using <code>ax_g</code>, <code>ay_g</code>, and <code>az_g</code>.</p>
           </details>
         </div>
       </section>

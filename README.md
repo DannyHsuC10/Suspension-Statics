@@ -6,10 +6,13 @@ Solve member axial forces and chassis support reactions on the imported suspensi
 
 ## Import and export
 
+Select **Import** and choose a file. The workbench recognizes its format from the CSV columns or JSON structure.
+
 | File | Input |
 | --- | --- |
 | Hardpoints CSV | `name,x_m,y_m,z_m` or `name,x_mm,y_mm,z_mm`. Supports JacobianKinematicsLab's embedded deformable-member endpoints and mounts. |
 | Project JSON | The desktop lab's version 1 format. Includes hardpoints, topology, mounted members, applied loads and section assignments. |
+| Kinematics project JSON | Standalone JacobianKinematicsLab version 1 projects such as `LP03_rockerset_project.json`. Imports hardpoints, pushrod mounts and deformable members as axial rods. Apply a load preset or enter your own loads after opening. |
 | Custom topology JSON | `fixed` lists chassis points. `bodies` maps rigid body names to their points. `rods` lists objects with unique `name` and hardpoint references `a` and `b`. |
 | External loads CSV | `target,end,x,y,z`. Leave `end` blank for forces (N), or use `A` or `B` for a member-end force couple (N·m). |
 | Lap CSV | Increasing `time_s` with either XYZ tire force channels for each wheel or longitudinal and lateral acceleration. Vertical acceleration is optional for acceleration-based laps. |
