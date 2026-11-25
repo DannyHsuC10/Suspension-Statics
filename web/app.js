@@ -7,7 +7,7 @@ import {
 import {
   formatHistoryCsv, formatLoadsCsv, formatProject, formatResultsCsv, parseImportedProject, parseLoadsCsv,
   validateLoads,
-} from "./data.js";
+} from "./data.js?v=hardpoint-exchange";
 import { drawSection, GripPlot, HistoryPlot, Viewport } from "./views.js";
 
 const $ = id => document.getElementById(id);
@@ -912,13 +912,16 @@ for (const button of document.querySelectorAll("[data-export]")) {
     perform(() => exportData(button.dataset.export));
   });
 }
-const fileInput = $("file-input");
-$("import-file").addEventListener("click", () => {
-  fileInput.value = "";
-  fileInput.click();
-});
-fileInput.addEventListener("change", async () => {
-  const file = fileInput.files[0];
+for (const [buttonId, inputId] of [["import-file", "file-input"], ["import-json", "json-file"]]) {
+  const input = $(inputId);
+  $(buttonId).addEventListener("click", () => {
+    input.value = "";
+    input.click();
+  });
+  input.addEventListener("change", () => { void importSelectedFile(input.files[0]); });
+}
+
+async function importSelectedFile(file) {
   if (!file) return;
   const revision = ++state.revision;
   try {
@@ -927,7 +930,7 @@ fileInput.addEventListener("change", async () => {
   } catch (error) {
     if (revision === state.revision) status(`${file.name}: ${error.message}`, true);
   }
-});
+}
 
 document.addEventListener("click", event => {
   for (const menu of document.querySelectorAll(".file-menu[open]")) {

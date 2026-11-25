@@ -15,6 +15,7 @@ from .solver import Load, Section
 
 FORMAT = "SuspensionStaticsLab"
 KINEMATICS_FORMAT = "JacobianKinematicsLab"
+EXCHANGE_FORMAT = "SuspensionHardpoints"
 SCHEMA_VERSION = 1
 
 
@@ -41,12 +42,20 @@ def vector(values, label):
 
 
 def is_kinematics_project(data):
-    return isinstance(data, dict) and "format" not in data and "points" in data
+    return isinstance(data, dict) and data.get("format") != FORMAT and (
+        data.get("format") == EXCHANGE_FORMAT or "hardpoint_exchange" in data
+        or ("format" not in data and "points" in data)
+    )
 
 
 def load_project(path):
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if is_kinematics_project(data):
+        if data.get("format") == EXCHANGE_FORMAT or "hardpoint_exchange" in data:
+            data = data if data.get("format") == EXCHANGE_FORMAT else data["hardpoint_exchange"]
+            if (not isinstance(data, dict) or data.get("format") != EXCHANGE_FORMAT
+                    or type(data.get("version")) is not int or data["version"] != SCHEMA_VERSION):
+                raise ValueError("需要 SuspensionHardpoints v1 硬點 JSON。")
         model = build_kinematics_model(data)
         sections = {rod.name: Section() for rod in model.rods}
         return Project(model, None, [], sections, ACCEL, MASS_KG, DEFAULT_ACCELERATION, True,
@@ -138,6 +147,16 @@ def save_project(path, project):
     }
     if project.model.member_mounts:
         data["member_mounts"] = project.model.member_mounts
+    points = dict(project.model.points)
+    members = []
+    for name, mounts in project.model.member_mounts.items():
+        member = {"name": name}
+        for label, mount in zip("AB", mounts):
+            member[label.lower()] = {"xyz": points.pop(f"{name}_{label}"), "mount": mount}
+        members.append(member)
+    data["hardpoint_exchange"] = {
+        "format": EXCHANGE_FORMAT, "version": SCHEMA_VERSION, "points": points, "deformable_members": members,
+    }
     payload = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     temporary = None
     try:

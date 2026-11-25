@@ -7,6 +7,7 @@ import {
 
 const FORMAT = 'SuspensionStaticsLab';
 const VERSION = 1;
+const EXCHANGE_FORMAT = 'SuspensionHardpoints';
 const CASE_LABELS = new Map([
   [ACCEL, '重心加速'], [BUMP, '單輪受衝擊'], [GRIP, '摩擦圓工況'],
 ]);
@@ -219,6 +220,15 @@ function kinematicsProject(data) {
 
 export function parseImportedProject(input) {
   const data = typeof input === 'string' ? readProjectJson(input) : input;
+  if (isRecord(data) && data.format !== FORMAT) {
+    const exchange = data.format === EXCHANGE_FORMAT ? data : data.hardpoint_exchange;
+    if (exchange !== undefined) {
+      if (!isRecord(exchange) || exchange.format !== EXCHANGE_FORMAT || exchange.version !== VERSION) {
+        throw new Error('Choose a SuspensionHardpoints v1 JSON.');
+      }
+      return kinematicsProject(exchange);
+    }
+  }
   if (isRecord(data) && Object.hasOwn(data, 'points') && !Object.hasOwn(data, 'format')) {
     return kinematicsProject(data);
   }
@@ -247,6 +257,14 @@ export function formatProject({ model, topology = null, loads, sections, caseNam
     },
   };
   if (Object.keys(model.memberMounts).length) data.member_mounts = model.memberMounts;
+  const points = { ...data.hardpoints_m };
+  const deformable_members = Object.entries(model.memberMounts).map(([name, [a, b]]) => {
+    const member = { name, a: { xyz: points[`${name}_A`], mount: a }, b: { xyz: points[`${name}_B`], mount: b } };
+    delete points[`${name}_A`];
+    delete points[`${name}_B`];
+    return member;
+  });
+  data.hardpoint_exchange = { format: EXCHANGE_FORMAT, version: VERSION, points, deformable_members };
   return `${JSON.stringify(data, null, 2)}\n`;
 }
 

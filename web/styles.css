@@ -72,7 +72,11 @@ label > input:not([type=checkbox]), label > select { width: 100%; }
 }
 .brand { display: inline-flex; align-items: center; gap: .7rem; color: inherit; text-decoration: none; font-size: 1.24rem; font-weight: 700; letter-spacing: .025em; }
 .brand-icon { display: block; width: 40px; height: 40px; flex: none; background: var(--night); }
-.site-nav { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.site-nav { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin-inline-start: auto; }
+.header-project-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
+.header-project-actions button { background: #f3f7fb; }
+.header-project-actions button:enabled:hover { background: #ebf4f6; }
+
 .nav-link { color: #effafb; text-decoration: none; font-size: .875rem; font-weight: 600; border: 1px solid #456176; border-radius: 6px; padding: .44rem .64rem; background: #21344d; }
 .nav-link:hover { color: #fff; background: #2b445f; border-color: var(--header-rule); }
 
