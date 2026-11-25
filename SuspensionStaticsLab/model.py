@@ -263,6 +263,34 @@ def wheel_points(points):
     return local, tuple(wheels)
 
 
+def _upper_arm_pushrod_corners(points):
+    corners, _ = wheel_points(dict(points))
+    return [local for local in corners.values() if {"PUSH_IN", "PUSH_OUT_UCA"} <= local.keys()
+            and not {"PUSH_OUT", "PUSH_OUT_UPRIGHT"} & local.keys()]
+
+
+def equivalent_pushrod_joints(points):
+    corners = _upper_arm_pushrod_corners(points)
+    return tuple(joint for joint in ("UBJ", "TOE") if any(joint in local for local in corners))
+
+
+def relocate_upper_arm_pushrods(points, joint):
+    if joint not in ("UBJ", "TOE"):
+        raise ValueError("請選擇上 A 臂球接頭或轉向拉桿外接點。")
+    renamed = {}
+    for local in _upper_arm_pushrod_corners(points):
+        if joint not in local:
+            continue
+        original = local["PUSH_OUT_UCA"]
+        replacement = original[:-len("PUSH_OUT_UCA")] + "PUSH_OUT_UPRIGHT"
+        renamed[original] = replacement
+        points[replacement] = points[local[joint]]
+        del points[original]
+    if not renamed:
+        raise ValueError(f"找不到具備內端與 {joint} 接點的上 A 臂推桿。")
+    return renamed
+
+
 def build_model(hardpoints, topology=None, *, member_mounts=None):
     points = dict(hardpoints)
     corners, wheels = wheel_points(points)

@@ -312,15 +312,25 @@ function customModel(points, topology, wheels, cg) {
     joints: [], notes: [], memberMounts: {} };
 }
 
-export function relocateUpperArmPushrods(points, joint) {
-  if (!['UBJ', 'TOE'].includes(joint)) throw new Error('Choose an upper ball joint or a tie-rod outer joint.');
+const EQUIVALENT_JOINTS = ['UBJ', 'TOE'];
+
+function upperArmPushrodCorners(points) {
   const { corners } = wheelPoints({ ...points });
+  return Object.values(corners).filter(local => local.PUSH_OUT_UCA && local.PUSH_IN && !local.PUSH_OUT_UPRIGHT && !local.PUSH_OUT);
+}
+
+export function equivalentPushrodJoints(points) {
+  const corners = upperArmPushrodCorners(points);
+  return EQUIVALENT_JOINTS.filter(joint => corners.some(local => local[joint]));
+}
+
+export function relocateUpperArmPushrods(points, joint) {
+  if (!EQUIVALENT_JOINTS.includes(joint)) throw new Error('Choose an upper ball joint or a tie-rod outer joint.');
   const renamed = new Map();
-  for (const [corner, local] of Object.entries(corners)) {
-    if (!local.PUSH_OUT_UCA || !local.PUSH_IN || !local[joint]) continue;
+  for (const local of upperArmPushrodCorners(points)) {
+    if (!local[joint]) continue;
     const original = local.PUSH_OUT_UCA;
     const replacement = `${original.slice(0, -'PUSH_OUT_UCA'.length)}PUSH_OUT_UPRIGHT`;
-    if (local.PUSH_OUT_UPRIGHT) throw new Error(`${corner} already has an upright-mounted pushrod.`);
     renamed.set(original, replacement);
     points[replacement] = [...points[local[joint]]];
     delete points[original];

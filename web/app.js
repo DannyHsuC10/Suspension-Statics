@@ -1,6 +1,6 @@
 import {
   accelerationHistory, buildModel, DEFAULT_ACCELERATION, DEFAULT_SECTION, DEFAULT_TIRE_MU,
-  exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
+  equivalentPushrodJoints, exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
   gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, relocateUpperArmPushrods,
   sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
@@ -648,10 +648,13 @@ function openPointEditor() {
     tr.dataset.point = name;
     return tr;
   }));
-  $("pushrod-equivalent").checked = false;
-  $("pushrod-equivalent-joint").value = "UBJ";
-  $("pushrod-equivalent-joint").disabled = true;
-  $("pushrod-equivalent-settings").hidden = state.topology !== null;
+  const joints = state.topology === null ? equivalentPushrodJoints(state.model.points) : [];
+  const jointPicker = $("pushrod-equivalent-joint");
+  for (const option of jointPicker.options) option.disabled = !joints.includes(option.value);
+  jointPicker.value = joints[0] ?? "";
+  jointPicker.disabled = !joints.length;
+  $("pushrod-equivalent").checked = Boolean(joints.length);
+  $("pushrod-equivalent-settings").hidden = !joints.length;
   $("editor-error").textContent = "";
   $("geometry-editor").showModal();
   if (state.selected?.kind === "point") {
