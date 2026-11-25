@@ -129,6 +129,7 @@ label > input:not([type=checkbox]), label > select { width: 100%; }
 
 .table-scroll { min-width: 0; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
 .load-table { min-height: 5rem; max-height: 12.6rem; }
+.applied-loads-table { max-height: 37.8rem; }
 .section-table { max-height: 34rem; }
 .section-table table { font-size: .9375rem; }
 .result-table { max-height: 24rem; }
