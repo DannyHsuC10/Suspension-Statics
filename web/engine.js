@@ -312,6 +312,23 @@ function customModel(points, topology, wheels, cg) {
     joints: [], notes: [], memberMounts: {} };
 }
 
+export function relocateUpperArmPushrods(points, joint) {
+  if (!['UBJ', 'TOE'].includes(joint)) throw new Error('Choose an upper ball joint or a tie-rod outer joint.');
+  const { corners } = wheelPoints({ ...points });
+  const renamed = new Map();
+  for (const [corner, local] of Object.entries(corners)) {
+    if (!local.PUSH_OUT_UCA || !local.PUSH_IN || !local[joint]) continue;
+    const original = local.PUSH_OUT_UCA;
+    const replacement = `${original.slice(0, -'PUSH_OUT_UCA'.length)}PUSH_OUT_UPRIGHT`;
+    if (local.PUSH_OUT_UPRIGHT) throw new Error(`${corner} already has an upright-mounted pushrod.`);
+    renamed.set(original, replacement);
+    points[replacement] = [...points[local[joint]]];
+    delete points[original];
+  }
+  if (!renamed.size) throw new Error(`No upper-arm pushrod has both an inboard end and a ${joint} hardpoint.`);
+  return renamed;
+}
+
 export function buildModel(hardpoints, topology = null, memberMounts = {}) {
   if (!isRecord(hardpoints)) throw new Error('Hardpoints must be an object of XYZ coordinates.');
   const points = Object.fromEntries(Object.entries(hardpoints).map(([name, coordinates]) => [name, vector(coordinates, name)]));

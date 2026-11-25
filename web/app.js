@@ -1,7 +1,7 @@
 import {
   accelerationHistory, buildModel, DEFAULT_ACCELERATION, DEFAULT_SECTION, DEFAULT_TIRE_MU,
   exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
-  gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader,
+  gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, relocateUpperArmPushrods,
   sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
 import {
@@ -648,6 +648,10 @@ function openPointEditor() {
     tr.dataset.point = name;
     return tr;
   }));
+  $("pushrod-equivalent").checked = false;
+  $("pushrod-equivalent-joint").value = "UBJ";
+  $("pushrod-equivalent-joint").disabled = true;
+  $("pushrod-equivalent-settings").hidden = state.topology !== null;
   $("editor-error").textContent = "";
   $("geometry-editor").showModal();
   if (state.selected?.kind === "point") {
@@ -667,14 +671,22 @@ function readEditor() {
 function editAction(exportOnly) {
   try {
     const points = readEditor();
+    const equivalent = $("pushrod-equivalent").checked;
+    const renamed = equivalent ? relocateUpperArmPushrods(points, $("pushrod-equivalent-joint").value) : new Map();
     if (exportOnly) {
+      if (equivalent) buildModel(points, state.topology, state.model.memberMounts);
       download("hardpoints-edited.csv", formatHardpointCsv(points, state.model.memberMounts));
       return;
     }
     const model = buildModel(points, state.topology, state.model.memberMounts);
-    install(model, state.source, { topology: state.topology, sections: state.sections, loads: state.loads, resetView: false });
+    const loads = state.loads.map(load => renamed.has(load.target) && !load.end
+      ? { ...load, target: renamed.get(load.target) }
+      : load);
+    validateLoads(model, loads);
+    install(model, state.source, { topology: state.topology, sections: state.sections, loads, resetView: false });
     $("geometry-editor").close();
-    status("Hardpoints updated. Apply acceleration again to recalculate the wheel loads.");
+    if (equivalent && loads.length) solveCurrent();
+    else status("Hardpoints updated. Apply acceleration again to recalculate the wheel loads.");
   } catch (error) {
     $("editor-error").textContent = error.message;
   }
@@ -841,6 +853,9 @@ $("track-governing").addEventListener("change", () => { renderHistory(); renderV
 $("history-scrubber").addEventListener("input", () => seek(Number($("history-scrubber").value), true));
 $("play-history").addEventListener("click", togglePlayback);
 $("edit-points").addEventListener("click", openPointEditor);
+$("pushrod-equivalent").addEventListener("change", () => {
+  $("pushrod-equivalent-joint").disabled = !$("pushrod-equivalent").checked;
+});
 $("close-editor").addEventListener("click", () => $("geometry-editor").close());
 $("apply-points").addEventListener("click", () => editAction(false));
 $("export-edited").addEventListener("click", () => editAction(true));

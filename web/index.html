@@ -234,6 +234,16 @@
     </div>
     <div class="dialog-body">
       <p class="hint">Coordinates in millimeters. +X forward, +Y left, +Z up.</p>
+      <div id="pushrod-equivalent-settings" class="subpanel" hidden>
+        <label class="check"><input type="checkbox" id="pushrod-equivalent"> Use an equivalent upright mount for upper-arm pushrods</label>
+        <label>Shared outer joint
+          <select id="pushrod-equivalent-joint" disabled>
+            <option value="UBJ">Upper A-arm ball joint (UBJ)</option>
+            <option value="TOE">Tie-rod outer joint (TOE)</option>
+          </select>
+        </label>
+        <p class="hint">Moves the outer pushrod ends to the chosen joint. This approximation changes the pushrod line of action and models each upper A-arm as two axial members. Export saves the relocated hardpoints.</p>
+      </div>
       <div class="table-scroll editor-table">
         <table>
           <thead><tr><th scope="col">Hardpoint</th><th scope="col">X (mm)</th><th scope="col">Y (mm)</th><th scope="col">Z (mm)</th></tr></thead>
