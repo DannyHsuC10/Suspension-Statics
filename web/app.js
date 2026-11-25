@@ -1,7 +1,7 @@
 import {
   accelerationHistory, buildModel, DEFAULT_ACCELERATION, DEFAULT_SECTION, DEFAULT_TIRE_MU,
-  equivalentPushrodJoints, exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
-  gripAccelerationLimit, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, relocateUpperArmPushrods,
+  exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
+  gripAccelerationLimit, hasEquivalentPushrodEnds, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, relocateArmPushrods,
   sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
 import {
@@ -648,13 +648,9 @@ function openPointEditor() {
     tr.dataset.point = name;
     return tr;
   }));
-  const joints = state.topology === null ? equivalentPushrodJoints(state.model.points) : [];
-  const jointPicker = $("pushrod-equivalent-joint");
-  for (const option of jointPicker.options) option.disabled = !joints.includes(option.value);
-  jointPicker.value = joints[0] ?? "";
-  jointPicker.disabled = !joints.length;
-  $("pushrod-equivalent").checked = Boolean(joints.length);
-  $("pushrod-equivalent-settings").hidden = !joints.length;
+  const canRelocate = state.topology === null && hasEquivalentPushrodEnds(state.model.points);
+  $("pushrod-equivalent").checked = canRelocate;
+  $("pushrod-equivalent-settings").hidden = !canRelocate;
   $("editor-error").textContent = "";
   $("geometry-editor").showModal();
   if (state.selected?.kind === "point") {
@@ -675,7 +671,7 @@ function editAction(exportOnly) {
   try {
     const points = readEditor();
     const equivalent = $("pushrod-equivalent").checked;
-    const renamed = equivalent ? relocateUpperArmPushrods(points, $("pushrod-equivalent-joint").value) : new Map();
+    const renamed = equivalent ? relocateArmPushrods(points) : new Map();
     if (exportOnly) {
       if (equivalent) buildModel(points, state.topology, state.model.memberMounts);
       download("hardpoints-edited.csv", formatHardpointCsv(points, state.model.memberMounts));
@@ -856,9 +852,6 @@ $("track-governing").addEventListener("change", () => { renderHistory(); renderV
 $("history-scrubber").addEventListener("input", () => seek(Number($("history-scrubber").value), true));
 $("play-history").addEventListener("click", togglePlayback);
 $("edit-points").addEventListener("click", openPointEditor);
-$("pushrod-equivalent").addEventListener("change", () => {
-  $("pushrod-equivalent-joint").disabled = !$("pushrod-equivalent").checked;
-});
 $("close-editor").addEventListener("click", () => $("geometry-editor").close());
 $("apply-points").addEventListener("click", () => editAction(false));
 $("export-edited").addEventListener("click", () => editAction(true));

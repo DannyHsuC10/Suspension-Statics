@@ -312,30 +312,29 @@ function customModel(points, topology, wheels, cg) {
     joints: [], notes: [], memberMounts: {} };
 }
 
-const EQUIVALENT_JOINTS = ['UBJ', 'TOE'];
-
-function upperArmPushrodCorners(points) {
+function equivalentPushrodEnds(points) {
   const { corners } = wheelPoints({ ...points });
-  return Object.values(corners).filter(local => local.PUSH_OUT_UCA && local.PUSH_IN && !local.PUSH_OUT_UPRIGHT && !local.PUSH_OUT);
+  const ends = [];
+  for (const [corner, local] of Object.entries(corners)) {
+    if (!local.PUSH_IN || local.PUSH_OUT_UPRIGHT || (local.PUSH_OUT_UCA && local.PUSH_OUT)) continue;
+    const original = local.PUSH_OUT_UCA ?? local.PUSH_OUT;
+    const joint = local.PUSH_OUT_UCA ? local.UBJ : local.LBJ;
+    if (original && joint) ends.push({ original, joint, replacement: `${corner}_PUSH_OUT_UPRIGHT` });
+  }
+  return ends;
 }
 
-export function equivalentPushrodJoints(points) {
-  const corners = upperArmPushrodCorners(points);
-  return EQUIVALENT_JOINTS.filter(joint => corners.some(local => local[joint]));
+export function hasEquivalentPushrodEnds(points) {
+  return equivalentPushrodEnds(points).length > 0;
 }
 
-export function relocateUpperArmPushrods(points, joint) {
-  if (!EQUIVALENT_JOINTS.includes(joint)) throw new Error('Choose an upper ball joint or a tie-rod outer joint.');
+export function relocateArmPushrods(points) {
   const renamed = new Map();
-  for (const local of upperArmPushrodCorners(points)) {
-    if (!local[joint]) continue;
-    const original = local.PUSH_OUT_UCA;
-    const replacement = `${original.slice(0, -'PUSH_OUT_UCA'.length)}PUSH_OUT_UPRIGHT`;
+  for (const { original, joint, replacement } of equivalentPushrodEnds(points)) {
     renamed.set(original, replacement);
-    points[replacement] = [...points[local[joint]]];
+    points[replacement] = [...points[joint]];
     delete points[original];
   }
-  if (!renamed.size) throw new Error(`No upper-arm pushrod has both an inboard end and a ${joint} hardpoint.`);
   return renamed;
 }
 

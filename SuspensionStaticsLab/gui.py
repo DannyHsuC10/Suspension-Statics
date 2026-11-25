@@ -13,8 +13,8 @@ from .history import DEFAULT_RISE_S, acceleration_history, lap_history, rise_sec
 from .history_view import HistoryPanel
 from .load_cases import (DEFAULT_ACCELERATION, DEFAULT_TIRE_MU, GRIP, MASS_KG, downforce_newtons,
                          example_loads, grip_acceleration_limit, tire_mu_coefficient)
-from .model import (CHASSIS, EXAMPLE, build_model, equivalent_pushrod_joints, load_model_csv, number,
-                    read_topology, relocate_upper_arm_pushrods, write_hardpoint_csv)
+from .model import (CHASSIS, EXAMPLE, build_model, has_equivalent_pushrod_ends, load_model_csv, number,
+                    read_topology, relocate_arm_pushrods, write_hardpoint_csv)
 from .section_view import SectionSketch
 from .solver import Load, Section, member_results, solve
 from .viewport import FONT, VIEWS, Viewport
@@ -868,20 +868,12 @@ class PointEditor:
         page.pack(fill="both", expand=True)
         ttk.Label(page, text="硬點座標", style="Heading.TLabel").pack(anchor="w")
         ttk.Label(page, text="+X 前、+Y 左、+Z 上。選取一列後可更新座標。", style="Muted.TLabel").pack(anchor="w", pady=(4, 7))
-        joints = equivalent_pushrod_joints(self.points) if app.topology is None else ()
-        self.equivalent = tk.BooleanVar(window, value=bool(joints))
-        self.joint = tk.StringVar(window)
-        self.joint_labels = {"上 A 臂球接頭（UBJ）": "UBJ", "轉向拉桿外接點（TOE）": "TOE"}
-        if joints:
-            controls = ttk.Frame(page)
-            controls.pack(fill="x", pady=(0, 7))
-            choices = [label for label, joint in self.joint_labels.items() if joint in joints]
-            self.joint.set(choices[0])
-            picker = ttk.Combobox(controls, textvariable=self.joint, values=choices, state="readonly", width=23)
-            ttk.Checkbutton(controls, text="等效移動上 A 臂推桿外端", variable=self.equivalent,
-                            command=lambda: picker.configure(state="readonly" if self.equivalent.get() else "disabled")
-                            ).pack(side="left", padx=(0, 8))
-            picker.pack(side="left")
+        can_relocate = app.topology is None and has_equivalent_pushrod_ends(self.points)
+        self.equivalent = tk.BooleanVar(window, value=can_relocate)
+        if can_relocate:
+            ttk.Checkbutton(page, text="將推桿外端等效移至 A 臂與立柱的球接頭", variable=self.equivalent).pack(anchor="w")
+            ttk.Label(page, text="依原始安裝位置，上 A 臂移至 UBJ，下 A 臂移至 LBJ。", style="Muted.TLabel"
+                      ).pack(anchor="w", pady=(0, 7))
         box, self.tree = row_table(page, (("硬點", 165), ("X mm", 96), ("Y mm", 96), ("Z mm", 96)), 11)
         box.pack(fill="both", expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.choose)
@@ -944,7 +936,7 @@ class PointEditor:
 
     def edited_points(self):
         points = dict(self.points)
-        renamed = relocate_upper_arm_pushrods(points, self.joint_labels[self.joint.get()]) if self.equivalent.get() else {}
+        renamed = relocate_arm_pushrods(points) if self.equivalent.get() else {}
         return points, renamed
 
     def export_csv(self):
