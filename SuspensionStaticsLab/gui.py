@@ -12,7 +12,8 @@ from .grip_view import GripPlot
 from .history import DEFAULT_RISE_S, acceleration_history, lap_history, rise_seconds
 from .history_view import HistoryPanel
 from .load_cases import (DEFAULT_ACCELERATION, DEFAULT_TIRE_MU, GRIP, MASS_KG, downforce_newtons,
-                         example_loads, grip_acceleration_limit, tire_mu_coefficient)
+                         example_loads, fit_grip_acceleration, grip_acceleration_limit, scan_grip_region,
+                         tire_mu_coefficient)
 from .model import (CHASSIS, EXAMPLE, build_model, has_equivalent_pushrod_ends, load_model_csv, number,
                     read_topology, relocate_arm_pushrods, write_hardpoint_csv)
 from .section_view import SectionSketch
@@ -231,6 +232,7 @@ class App:
         header.pack(fill="x", pady=(0, 4))
         ttk.Label(header, text="摩擦圓", style="Heading.TLabel").pack(side="left")
         ttk.Button(header, text="套用加速度", command=self.apply_example).pack(side="right")
+        ttk.Button(header, text="掃描可行區", command=self.scan_grip).pack(side="right", padx=(0, 6))
         settings = ttk.Frame(tab)
         settings.pack(fill="x")
         settings.columnconfigure(0, weight=1)
@@ -604,18 +606,63 @@ class App:
             return downforce_newtons(self.downforce_input.get())
         return None
 
+    def grip_settings(self, mass):
+        return dict(mass_kg=mass, include_gravity=self.include_gravity.get(),
+                    downforce_n=self.read_downforce_input() or 0., tire_mu=self.tire_mu.get())
+
     def apply_example(self):
         if self.model is None:
             return
         try:
             mass, acceleration = self.read_acceleration_inputs()
-            self.loads = example_loads(self.model, GRIP, mass_kg=mass, acceleration_mps2=acceleration,
-                                       include_gravity=self.include_gravity.get(),
-                                       downforce_n=self.read_downforce_input() or 0., tire_mu=self.tire_mu.get())
+            actual, loads, reduced = fit_grip_acceleration(self.model, acceleration, **self.grip_settings(mass))
         except ValueError as error:
             self.show_error(error)
             return
-        self.finish_load_edit(message="已套用摩擦圓加速度。可編輯各列外載後求解。")
+        self.select_grip_acceleration(*actual[:2])
+        self.loads = loads
+        self.finish_load_edit()
+        self.solve_model(show=False)
+        if reduced:
+            before = ", ".join(map(numeric, acceleration[:2]))
+            after = ", ".join(map(numeric, actual[:2]))
+            self.set_status(f"原工況輪胎離地，已沿原方向自動縮小水平加速度 ({before}) → ({after}) m/s²。{self.status.get()}",
+                            error=self.equilibrium is None)
+
+    def scan_grip(self):
+        if self.model is None:
+            return
+        try:
+            mass = number(self.mass_input.get(), "重心質量")
+            az = number(self.acceleration_inputs[2].get(), "Z 軸加速度")
+            peaks, feasible, attempted = scan_grip_region(self.model, az, **self.grip_settings(mass))
+        except ValueError as error:
+            self.show_error(error)
+            return
+
+        member, force, acceleration = peaks[0]
+        direction = "拉伸" if force > 0 else "壓縮" if force < 0 else "零力"
+        window = tk.Toplevel(self.root)
+        window.title("摩擦圓可行區掃描")
+        window.transient(self.root)
+        page = ttk.Frame(window, padding=12)
+        page.pack(fill="both", expand=True)
+        xyz = ", ".join(map(numeric, acceleration))
+        ttk.Label(page, text=f"峰值 {member} · {numeric(force)} N（{direction}）\n"
+                             f"加速度 ({xyz}) m/s² · {feasible}/{attempted} 個取樣工況求解成功"
+                  ).pack(anchor="w", pady=(0, 7))
+        fields = (("桿件", 230), ("軸力 N", 92), ("ax m/s²", 80), ("ay m/s²", 80))
+        box, tree = row_table(page, fields, 12, selectmode="none")
+        box.pack(fill="both", expand=True)
+        set_rows(tree, ((name, (name, numeric(load), *map(numeric, accel[:2]))) for name, load, accel in peaks))
+
+        def apply_peak():
+            window.destroy()
+            self.select_grip_acceleration(*acceleration[:2])
+            self.apply_example()
+
+        ttk.Button(page, text="套用峰值工況", command=apply_peak).pack(anchor="e", pady=(7, 0))
+        window.grab_set()
 
     def refresh_grip(self, *_):
         try:

@@ -171,6 +171,8 @@
             \]
           </div>
           <p>The disk checks the combined tire force allowance. The solver also checks normal loads and whether the suspension can balance the resulting loads at the original hardpoints.</p>
+          <p>If the requested case lifts a wheel, <strong>Apply acceleration</strong> searches toward the center along the original horizontal direction and refines the contact boundary. The applied acceleration and the original request are shown together. Vertical acceleration, mass, tire grip and downforce stay fixed during this search.</p>
+          <p><strong>Scan feasible region</strong> evaluates the center and 24 radii on each of 120 directions, including the friction-circle boundary. It also tests refined points near changes in wheel contact. A sample counts as feasible when its tire loads and suspension equilibrium both pass. The report ranks each member by its largest sampled absolute axial force, with positive values for tension and negative values for compression. The peak is a numerical estimate over the sampled disk.</p>
         </section>
 
         <section id="sections">

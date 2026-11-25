@@ -123,6 +123,7 @@ label > input:not([type=checkbox]), label > select { width: 100%; }
 .compact-number { display: flex; align-items: center; gap: .35rem; }
 .compact-number > input { max-width: 5.5rem; }
 #grip-settings { display: grid; gap: .45rem; }
+.grip-notice { background: #fff4d9; color: #634400; border-radius: 6px; padding: .55rem .65rem; font-size: .875rem; }
 #grip-plot { display: block; width: 100%; height: 200px; border-radius: 7px; touch-action: none; cursor: crosshair; }
 .total-load { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 

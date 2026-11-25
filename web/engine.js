@@ -17,6 +17,7 @@ export const DEFAULT_SECTION = { outer_mm: 19, inner_mm: 15, young_gpa: 205 };
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const PROJECT_COLUMN = 'jacobian_project';
 const WHEEL_LIFT = 'The example distribution gives negative normal load at one or more tires. Adjust the CG or acceleration, or enter wheel loads directly.';
+class WheelLiftError extends Error {}
 const ALIASES = {
   UFI: 'UCA_F', URI: 'UCA_R', LFI: 'LCA_F', LRI: 'LCA_R', WHEEL_CENTER: 'WC',
   ROD_IN: 'RACK', ROD_OUT: 'TOE', TIE_IN: 'RACK', TIE_OUT: 'TOE',
@@ -552,7 +553,7 @@ export function solve(model, loads = []) {
   return solveFrames(model, [loads])[0];
 }
 
-function solveFrames(model, loadFrames) {
+function solveFrames(model, loadFrames, skipUnbalanced = false) {
   if (!model.rods.length) throw new Error('There are no axial rods to solve.');
   const points = model.points;
   const rods = new Map(model.rods.map((rod) => [rod.name, rod]));
@@ -693,6 +694,7 @@ function solveFrames(model, loadFrames) {
     if (!residual.every(Number.isFinite)) throw new Error('Equilibrium residual exceeds the numerical range.');
     const magnitude = targets.reduce((largest, value) => Math.max(largest, Math.abs(value)), 1);
     if (residual.some((value) => Math.abs(value) > 1e-7 * magnitude)) {
+      if (skipUnbalanced) return null;
       let worst;
       let largest = -1;
       for (const [body, { start, width }] of rows) {
@@ -790,7 +792,7 @@ function presetParameters(settings, accelerating) {
   const tireMu = accelerating ? tireMuCoefficient(settings.tireMu ?? settings.tire_mu) : DEFAULT_TIRE_MU;
   const apparentWeight = mass * gravity + mass * acceleration[2] + downforce;
   if (!Number.isFinite(apparentWeight)) throw new Error('Mass, acceleration or downforce exceeds the numerical range.');
-  if (apparentWeight < 0) throw new Error(WHEEL_LIFT);
+  if (apparentWeight < 0) throw new WheelLiftError(WHEEL_LIFT);
   return { mass, acceleration, tireMu, apparentWeight };
 }
 
@@ -868,12 +870,93 @@ export function exampleLoads(model, caseName, settings = {}) {
   });
   if (reactions.some((reaction) => !reaction.every(Number.isFinite))) throw new Error('Tire loads exceed the numerical range.');
   if (reactions.some((reaction) => reaction[2] < -1e-6)) {
-    throw new Error(WHEEL_LIFT);
+    throw new WheelLiftError(WHEEL_LIFT);
   }
   return [
     { target: model.cg, xyz: [inertial[0], inertial[1], -apparentWeight], end: '' },
     ...contacts.map((target, index) => ({ target, xyz: reactions[index], end: '' })),
   ];
+}
+
+function gripSample(model, settings, acceleration) {
+  try {
+    return { acceleration, loads: exampleLoads(model, GRIP, { ...settings, accelerationMps2: acceleration }) };
+  } catch (error) {
+    if (!(error instanceof WheelLiftError)) throw error;
+    return null;
+  }
+}
+
+function refineGripBoundary(sample, low, high, lowSample, highSample = null) {
+  const inside = Boolean(lowSample);
+  let best = lowSample ?? highSample;
+  for (let step = 0; step < 24; step += 1) {
+    const middle = (low + high) / 2;
+    const candidate = sample(middle);
+    if (candidate) best = candidate;
+    if (Boolean(candidate) === inside) low = middle;
+    else high = middle;
+  }
+  return best;
+}
+
+export function fitGripAcceleration(model, settings) {
+  const requested = vector(accelerationSetting(settings), 'Acceleration');
+  const [ax, ay, az] = requested;
+  const sample = factor => gripSample(model, settings, [ax * factor, ay * factor, az]);
+  const full = sample(1);
+  if (full) return { ...full, reduced: false };
+  const center = sample(0);
+  if (!center) throw new WheelLiftError('Wheel lift persists at zero horizontal acceleration. Check CG, vertical acceleration and downforce.');
+  for (let step = 23; step > 0; step -= 1) {
+    const candidate = sample(step / 24);
+    if (candidate) return { ...refineGripBoundary(sample, step / 24, (step + 1) / 24, candidate), reduced: true };
+  }
+  return { ...refineGripBoundary(sample, 0, 1 / 24, center), reduced: true };
+}
+
+export function scanGripRegion(model, settings) {
+  const az = vector(accelerationSetting(settings), 'Acceleration')[2];
+  const limit = gripAccelerationLimit({ ...settings, accelerationMps2: [0, 0, az] });
+  const center = gripSample(model, settings, [0, 0, az]);
+  const samples = center ? [center] : [];
+  let attempted = 1;
+  const directions = 120;
+  const rings = 24;
+  if (limit > 0) {
+    for (let direction = 0; direction < directions; direction += 1) {
+      const angle = 2 * Math.PI * direction / directions;
+      const ax = limit * Math.cos(angle);
+      const ay = limit * Math.sin(angle);
+      const sample = radius => gripSample(model, settings, [ax * radius, ay * radius, az]);
+      let previous = center;
+      for (let ring = 1; ring <= rings; ring += 1) {
+        const current = sample(ring / rings);
+        attempted += 1;
+        if (current) samples.push(current);
+        if (Boolean(previous) !== Boolean(current)) {
+          samples.push(refineGripBoundary(sample, (ring - 1) / rings, ring / rings, previous, current));
+          attempted += 1;
+        }
+        previous = current;
+      }
+    }
+  }
+  if (!samples.length) throw new Error('No sampled acceleration satisfies the wheel-contact constraint.');
+  const equilibria = solveFrames(model, samples.map(({ loads }) => loads), true);
+  const peaks = new Map();
+  let feasible = 0;
+  for (const [index, equilibrium] of equilibria.entries()) {
+    if (!equilibrium) continue;
+    feasible += 1;
+    for (const [member, force] of Object.entries(equilibrium.forces)) {
+      if (!peaks.has(member) || Math.abs(force) > Math.abs(peaks.get(member).force)) {
+        peaks.set(member, { member, force, acceleration: samples[index].acceleration });
+      }
+    }
+  }
+  if (!feasible) throw new Error('No sampled acceleration could balance the suspension. Check the geometry and constraints.');
+  return { peaks: [...peaks.values()].sort((a, b) => Math.abs(b.force) - Math.abs(a.force)), feasible, attempted };
 }
 
 function timeError(time, error) {

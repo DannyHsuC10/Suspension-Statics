@@ -1,8 +1,8 @@
 import {
   accelerationHistory, buildModel, DEFAULT_ACCELERATION, DEFAULT_SECTION, DEFAULT_TIRE_MU,
-  exampleLoads, formatHardpointCsv, GRIP, MASS_KG,
+  exampleLoads, fitGripAcceleration, formatHardpointCsv, GRIP, MASS_KG,
   gripAccelerationLimit, hasEquivalentPushrodEnds, historyStatistics, lapHistory, memberResults, parseHardpointCsv, readCsvHeader, relocateArmPushrods,
-  sectionProperties, solve, tireMuCoefficient,
+  scanGripRegion, sectionProperties, solve, tireMuCoefficient,
 } from "./engine.js";
 import {
   formatHistoryCsv, formatLoadsCsv, formatProject, formatResultsCsv, parseImportedProject, parseLoadsCsv,
@@ -20,6 +20,7 @@ const state = {
   selected: null,
   checked: new Set(),
   loadIndex: -1,
+  gripPeak: null,
   equilibrium: null,
   results: {},
   stressLimit: 0,
@@ -38,6 +39,7 @@ const gripPlot = new GripPlot($("grip-plot"), (ax, ay) => {
   $("ax").value = ax;
   $("ay").value = ay;
   renderAcceleration();
+  showGripAdjustment("");
 });
 
 function display(value, digits = 5) {
@@ -160,6 +162,8 @@ function renderGrip([ax, ay, az]) {
 
 function install(model, source, { topology = null, loads = [], sections = {}, resetView = true } = {}) {
   stopPlayback();
+  clearGripScan();
+  showGripAdjustment("");
   state.model = model;
   state.source = source;
   state.topology = topology;
@@ -226,6 +230,7 @@ function syncButtons() {
   const model = Boolean(state.model);
   const members = Boolean(state.model?.rods.length);
   $("apply-acceleration").disabled = !model;
+  $("scan-grip").disabled = !members;
   for (const id of ["apply-sections", "apply-all-sections", "generate-history"]) $(id).disabled = !members;
   $("clear-loads").disabled = !state.loads.length;
   $("add-load").disabled = !$("load-target").value;
@@ -335,10 +340,45 @@ function formLoad() {
 }
 
 function setLoads(loads, active = -1) {
+  showGripAdjustment("");
   state.loads = loads;
   state.loadIndex = active;
   renderLoads();
   solveCurrent();
+}
+
+function showGripAdjustment(message) {
+  const notice = $("grip-adjustment");
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+
+function clearGripScan() {
+  state.gripPeak = null;
+  $("grip-scan-results").hidden = true;
+}
+
+function applyGrip(settings) {
+  const { acceleration, loads, reduced } = fitGripAcceleration(state.model, settings);
+  acceleration.slice(0, 2).forEach((value, index) => { $(["ax", "ay"][index]).value = value; });
+  renderAcceleration();
+  setLoads(loads);
+  if (reduced) {
+    showGripAdjustment(`Wheel lift at requested acceleration ${xyzText(settings.accelerationMps2)} m/s². The tool automatically reduced horizontal acceleration to ${xyzText(acceleration)} m/s² along the same direction.`);
+  }
+}
+
+function scanGrip() {
+  clearGripScan();
+  const { peaks, feasible, attempted } = scanGripRegion(state.model, readSettings([0, 0, numeric($("az"), "az")]));
+  const peak = state.gripPeak = peaks[0];
+  const direction = peak.force > 0 ? "tension" : peak.force < 0 ? "compression" : "zero force";
+  $("grip-scan-summary").textContent = `Peak: ${peak.member}, ${display(peak.force)} N (${direction}) at ${xyzText(peak.acceleration)} m/s². ${feasible} of ${attempted} cases solved (sampled peak).`;
+  $("grip-scan-rows").replaceChildren(...peaks.map(({ member, force, acceleration }) => row([
+    td(member), td(display(force), "num"), ...acceleration.slice(0, 2).map(value => td(display(value), "num")),
+  ])));
+  $("grip-scan-results").hidden = false;
+  status(`Scanned the feasible region. Peak axial force: ${peak.member}, ${display(peak.force)} N.`);
 }
 
 function clearStaticResults() {
@@ -820,12 +860,15 @@ for (const button of document.querySelectorAll("[data-view]")) {
 }
 for (const id of ["view-labels", "view-loads"]) $(id).addEventListener("change", renderViewport);
 for (const id of ["enable-downforce", "downforce", "mass", "gravity", "ax", "ay", "az", "tire-mu"]) {
-  $(id).addEventListener("input", renderAcceleration);
+  $(id).addEventListener("input", () => {
+    renderAcceleration();
+    showGripAdjustment("");
+    if (id !== "ax" && id !== "ay") clearGripScan();
+  });
 }
-$("apply-acceleration").addEventListener("click", () => perform(() => {
-  const loads = exampleLoads(state.model, GRIP, readSettings());
-  setLoads(loads);
-}));
+$("apply-acceleration").addEventListener("click", () => perform(() => applyGrip(readSettings())));
+$("scan-grip").addEventListener("click", () => perform(scanGrip));
+$("apply-grip-peak").addEventListener("click", () => perform(() => applyGrip(readSettings(state.gripPeak.acceleration))));
 $("load-type").addEventListener("change", updateLoadTargets);
 $("load-target").addEventListener("change", updateLoadTargets);
 for (const id of ["load-x", "load-y", "load-z"]) $(id).addEventListener("input", renderLoadHint);

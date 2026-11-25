@@ -113,6 +113,18 @@
             </div>
             <div class="button-row">
               <button type="button" id="apply-acceleration" class="primary" disabled>Apply acceleration</button>
+              <button type="button" id="scan-grip" disabled>Scan feasible region</button>
+            </div>
+            <p id="grip-adjustment" class="grip-notice" role="status" hidden></p>
+            <div id="grip-scan-results" class="subpanel" hidden>
+              <p id="grip-scan-summary" role="status"></p>
+              <div class="button-row"><button type="button" id="apply-grip-peak">Apply peak case</button></div>
+              <div class="table-scroll load-table" tabindex="0" aria-label="Peak axial force by member">
+                <table>
+                  <thead><tr><th scope="col">Member</th><th scope="col" class="num">Force (N)</th><th scope="col" class="num">ax (m/s²)</th><th scope="col" class="num">ay (m/s²)</th></tr></thead>
+                  <tbody id="grip-scan-rows"></tbody>
+                </table>
+              </div>
             </div>
           </div>
           <div class="section-heading separated">

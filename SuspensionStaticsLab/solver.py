@@ -96,7 +96,7 @@ def solve(model, loads):
     return solve_frames(model, (loads,))[0]
 
 
-def solve_frames(model, load_frames):
+def solve_frames(model, load_frames, *, skip_unbalanced=False):
     if not model.rods:
         raise ValueError("目前沒有可求解的軸力桿件。")
     points = {name: np.asarray(xyz, dtype=float) for name, xyz in model.points.items()}
@@ -227,16 +227,16 @@ def solve_frames(model, load_frames):
     tolerance = 1e-7 * np.maximum(1., np.max(np.abs(targets), axis=0, initial=0.))
     if not np.isfinite(forces).all():
         raise ValueError("內力超出可求解的數值範圍。")
-    invalid = np.flatnonzero(np.max(np.abs(residual), axis=0, initial=0.) > tolerance)
-    if len(invalid):
-        index = int(invalid[0])
+    invalid = np.max(np.abs(residual), axis=0, initial=0.) > tolerance
+    if not skip_unbalanced and invalid.any():
+        index = int(np.flatnonzero(invalid)[0])
         worst = max(rows, key=lambda body: np.linalg.norm(residual[rows[body], index]))
         label = worst[0] if worst in pins else worst
         raise FrameError(index, f"{label} 無法平衡目前外載（矩陣秩 {rank}/{nrows}）。"
                          "請檢查推桿、轉向拉桿與支承，或調整載重方向。")
-    return tuple(Equilibrium(dict(zip(rods, map(float, column))), lengths, tuple(-wrench[:3]),
-                             tuple(-wrench[3:]), model.cg, rank, nrows)
-                 for column, wrench in zip(forces.T, applied[:, nrows:]))
+    return tuple(None if rejected else Equilibrium(dict(zip(rods, map(float, column))), lengths, tuple(-wrench[:3]),
+                                                   tuple(-wrench[3:]), model.cg, rank, nrows)
+                 for column, wrench, rejected in zip(forces.T, applied[:, nrows:], invalid))
 
 
 def member_results(equilibrium, sections):
